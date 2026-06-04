@@ -1,0 +1,10 @@
+PayWay environment variables to add to .env on https://gameshop.mobi/
+
+PAYWAY_URL="https://checkout.payway.com.kh/"
+PAYWAY_MERCHANT_ID="linkit360solution"
+PAYWAY_SECRET_KEY="c8354fed-a9a7-4ac5-beaa-3f8e29dc75d6"
+PAYWAY_MERCHANT_CODE="MID2023000001"
+
+After adding:
+- php artisan config:clear
+- Confirm the service can reach the PayWay checkout endpoint.

@@ -1,0 +1,13 @@
+import { chromium } from "playwright";
+import { config as loadEnv } from "dotenv";
+import { readFile } from "node:fs/promises";
+loadEnv();
+const BASE=(process.env.LINKIT_BASE_URL||"https://report.linkit360.com").replace(/\/+$/,"");
+const SESSION=process.env.LINKIT_SESSION_PATH||".session/storage-state.json";
+const ctx=await (await chromium.launch({headless:true,args:["--no-sandbox"]})).newContext({storageState:JSON.parse(await readFile(SESSION,"utf8"))});
+const page=await ctx.newPage();
+await page.goto(BASE+"/ticketing-infra/create",{waitUntil:"networkidle"});
+const html=await page.content();
+const k=html.indexOf("Are you sure?");
+console.log(html.slice(k-40, k+900).replace(/\n{2,}/g,"\n"));
+process.exit(0);

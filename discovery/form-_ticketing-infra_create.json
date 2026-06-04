@@ -1,0 +1,424 @@
+[
+  {
+    "action": "https://report.linkit360.com/ticketing-infra/request",
+    "method": "post",
+    "fields": [
+      {
+        "name": "category",
+        "selector": "select[name=\"category\"]",
+        "tag": "select",
+        "type": "select",
+        "label": "Category",
+        "required": false,
+        "optionCount": 6,
+        "options": [
+          {
+            "value": "",
+            "label": "Select Category"
+          },
+          {
+            "value": "1",
+            "label": "Item / Hardware"
+          },
+          {
+            "value": "2",
+            "label": "Email"
+          },
+          {
+            "value": "3",
+            "label": "Server"
+          },
+          {
+            "value": "4",
+            "label": "Domain/Pointing IP/Website"
+          },
+          {
+            "value": "5",
+            "label": "Other"
+          }
+        ],
+        "multiple": false
+      },
+      {
+        "name": "other_category",
+        "selector": "input[name=\"other_category\"]",
+        "tag": "input",
+        "type": "text",
+        "label": "Category",
+        "required": false
+      },
+      {
+        "name": "company",
+        "selector": "select[name=\"company\"]",
+        "tag": "select",
+        "type": "select",
+        "label": "Company",
+        "required": false,
+        "optionCount": 19,
+        "options": [
+          {
+            "value": "",
+            "label": "Select Company"
+          },
+          {
+            "value": "1",
+            "label": "KreativeMultimediaVN"
+          },
+          {
+            "value": "2",
+            "label": "KreativeBersamaPH"
+          },
+          {
+            "value": "3",
+            "label": "Yatta"
+          },
+          {
+            "value": "4",
+            "label": "Waki"
+          },
+          {
+            "value": "5",
+            "label": "PASS"
+          },
+          {
+            "value": "6",
+            "label": "LinkIT.ID"
+          },
+          {
+            "value": "7",
+            "label": "ClickMultimediaTH"
+          },
+          {
+            "value": "8",
+            "label": "LinkIT.MENA"
+          },
+          {
+            "value": "9",
+            "label": "LinkIT.EU"
+          },
+          {
+            "value": "11",
+            "label": "LinkIT.Africa"
+          },
+          {
+            "value": "12",
+            "label": "LinkIT.Asia"
+          }
+        ],
+        "multiple": false
+      },
+      {
+        "name": "service_type",
+        "type": "radio",
+        "label": "Service",
+        "required": false,
+        "options": [
+          {
+            "value": "service",
+            "label": "Service"
+          },
+          {
+            "value": "project",
+            "label": "Project"
+          }
+        ]
+      },
+      {
+        "name": "country",
+        "selector": "select[name=\"country\"]",
+        "tag": "select",
+        "type": "select",
+        "label": "Country",
+        "required": false,
+        "optionCount": 195,
+        "options": [
+          {
+            "value": "",
+            "label": "Select Country"
+          },
+          {
+            "value": "1",
+            "label": "Indonesia"
+          },
+          {
+            "value": "2",
+            "label": "Thailand"
+          },
+          {
+            "value": "3",
+            "label": "Ghana"
+          },
+          {
+            "value": "4",
+            "label": "USA"
+          },
+          {
+            "value": "5",
+            "label": "Pakistan"
+          },
+          {
+            "value": "6",
+            "label": "Qatar"
+          },
+          {
+            "value": "7",
+            "label": "Kuwait"
+          },
+          {
+            "value": "8",
+            "label": "Laos"
+          },
+          {
+            "value": "9",
+            "label": "Cambodia"
+          },
+          {
+            "value": "10",
+            "label": "Malaysia"
+          },
+          {
+            "value": "11",
+            "label": "Bangladesh"
+          }
+        ],
+        "multiple": false
+      },
+      {
+        "name": "project",
+        "selector": "input[name=\"project\"]",
+        "tag": "input",
+        "type": "text",
+        "label": "Project",
+        "required": false
+      },
+      {
+        "name": "operator",
+        "selector": "select[name=\"operator\"]",
+        "tag": "select",
+        "type": "select",
+        "label": "Operator",
+        "required": false,
+        "optionCount": 1,
+        "options": [
+          {
+            "value": "",
+            "label": "Select Operator"
+          }
+        ],
+        "multiple": false
+      },
+      {
+        "name": "service",
+        "selector": "select[name=\"service\"]",
+        "tag": "select",
+        "type": "select",
+        "label": "Service",
+        "required": false,
+        "optionCount": 1,
+        "options": [
+          {
+            "value": "",
+            "label": "Select Service"
+          }
+        ],
+        "multiple": false
+      },
+      {
+        "name": "sent_to[]",
+        "selector": "select[name=\"sent_to[]\"]",
+        "tag": "select",
+        "type": "select",
+        "label": "Sent To",
+        "required": false,
+        "optionCount": 143,
+        "options": [
+          {
+            "value": "it.support@linkit360.com",
+            "label": "it.support@linkit360.com"
+          },
+          {
+            "value": "infra@linkit360.com",
+            "label": "infra@linkit360.com"
+          },
+          {
+            "value": "magic.solve@gmail.com",
+            "label": "Utpal Mondal"
+          },
+          {
+            "value": "gaurav.adlakha@linkit360.com",
+            "label": "Gaurav"
+          },
+          {
+            "value": "alain.banchong@linkit360.com",
+            "label": "Chityphong"
+          },
+          {
+            "value": "arief.budiman@linkit360.com",
+            "label": "Arief budiman"
+          },
+          {
+            "value": "aldo.bangsawan@linkit360.com",
+            "label": "Aldo bangsawan"
+          },
+          {
+            "value": "hant@linkit360.com",
+            "label": "Ha nguyen"
+          },
+          {
+            "value": "matthieu@linkit360.com",
+            "label": "Matthieu"
+          },
+          {
+            "value": "pisoth.yous@linkit360.com",
+            "label": "pisoth.yous"
+          },
+          {
+            "value": "agung.sulendro@linkit360.com",
+            "label": "agung.sulendro"
+          },
+          {
+            "value": "sari.anggereni@linkit360.com",
+            "label": "sari.anggereni"
+          }
+        ],
+        "multiple": true
+      },
+      {
+        "name": null,
+        "selector": "input",
+        "tag": "input",
+        "type": "search",
+        "label": "Sent To",
+        "required": false
+      },
+      {
+        "name": "cc_email[]",
+        "selector": "select[name=\"cc_email[]\"]",
+        "tag": "select",
+        "type": "select",
+        "label": "CC email",
+        "required": false,
+        "optionCount": 141,
+        "options": [
+          {
+            "value": "magic.solve@gmail.com",
+            "label": "Utpal Mondal"
+          },
+          {
+            "value": "gaurav.adlakha@linkit360.com",
+            "label": "Gaurav"
+          },
+          {
+            "value": "alain.banchong@linkit360.com",
+            "label": "Chityphong"
+          },
+          {
+            "value": "arief.budiman@linkit360.com",
+            "label": "Arief budiman"
+          },
+          {
+            "value": "aldo.bangsawan@linkit360.com",
+            "label": "Aldo bangsawan"
+          },
+          {
+            "value": "hant@linkit360.com",
+            "label": "Ha nguyen"
+          },
+          {
+            "value": "matthieu@linkit360.com",
+            "label": "Matthieu"
+          },
+          {
+            "value": "pisoth.yous@linkit360.com",
+            "label": "pisoth.yous"
+          },
+          {
+            "value": "agung.sulendro@linkit360.com",
+            "label": "agung.sulendro"
+          },
+          {
+            "value": "sari.anggereni@linkit360.com",
+            "label": "sari.anggereni"
+          },
+          {
+            "value": "pmo.team@linkit360.com",
+            "label": "PMO"
+          },
+          {
+            "value": "rouba.taha@linkit360.com",
+            "label": "rouba"
+          }
+        ],
+        "multiple": true
+      },
+      {
+        "name": null,
+        "selector": "input",
+        "tag": "input",
+        "type": "search",
+        "label": "CC email",
+        "required": false
+      },
+      {
+        "name": "subject",
+        "selector": "input[name=\"subject\"]",
+        "tag": "input",
+        "type": "text",
+        "label": "Subject",
+        "required": false
+      },
+      {
+        "name": "classification",
+        "selector": "select[name=\"classification\"]",
+        "tag": "select",
+        "type": "select",
+        "label": "Classification",
+        "required": false,
+        "optionCount": 6,
+        "options": [
+          {
+            "value": "",
+            "label": "Select Classification"
+          },
+          {
+            "value": "1",
+            "label": "P0"
+          },
+          {
+            "value": "2",
+            "label": "P1"
+          },
+          {
+            "value": "3",
+            "label": "P2"
+          },
+          {
+            "value": "4",
+            "label": "P3"
+          },
+          {
+            "value": "5",
+            "label": "P4"
+          }
+        ],
+        "multiple": false
+      },
+      {
+        "name": "request_detail",
+        "selector": "textarea[name=\"request_detail\"]",
+        "tag": "textarea",
+        "type": "textarea",
+        "label": "Request Detail",
+        "required": false
+      },
+      {
+        "name": "files[]",
+        "selector": "input[name=\"files[]\"]",
+        "tag": "input",
+        "type": "file",
+        "label": null,
+        "required": false
+      }
+    ]
+  }
+]

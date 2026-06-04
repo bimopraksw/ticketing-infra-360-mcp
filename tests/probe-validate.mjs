@@ -1,0 +1,35 @@
+import { chromium } from "playwright";
+import { config as loadEnv } from "dotenv";
+import { readFile } from "node:fs/promises";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+loadEnv();
+const __dirname=dirname(fileURLToPath(import.meta.url));
+const BASE=(process.env.LINKIT_BASE_URL||"https://report.linkit360.com").replace(/\/+$/,"");
+const SESSION=process.env.LINKIT_SESSION_PATH||".session/storage-state.json";
+const pdf=join(__dirname,"..","discovery","payway-gameshop-env.pdf");
+const ctx=await (await chromium.launch({headless:true,args:["--no-sandbox"]})).newContext({storageState:JSON.parse(await readFile(SESSION,"utf8"))});
+const page=await ctx.newPage();
+await page.goto(BASE+"/ticketing-infra/create",{waitUntil:"networkidle"});
+const jq=(name,vals)=>page.evaluate(({name,vals})=>{window.jQuery(document.querySelector(`select[name="${name}"]`)).val(vals).trigger("change");},{name,vals});
+await jq("category",["3"]); await page.waitForTimeout(1500);
+await jq("company",["6"]); await page.waitForTimeout(1500);
+await page.evaluate(()=>{const r=[...document.querySelectorAll('input[name=service_type]')].find(x=>x.value==="project");r.click();});
+await jq("country",["1"]); await page.waitForTimeout(1800);
+await page.fill('input[name="project"]',"Gameshop");
+await jq("sent_to[]",["infra@linkit360.com"]);
+await page.fill('input[name="subject"]',"LinkIT - Infra - Change env gameshop");
+await jq("classification",["2"]);
+await page.fill('textarea[name="request_detail"]',"PayWay env vars for gameshop.mobi.");
+await page.locator('input[name="files[]"]').setInputFiles(pdf);
+await page.waitForTimeout(1200);
+const diag=await page.evaluate(()=>{
+  const ids=["errorOtherCategory","errorCategory","errorCompany","errorcountry","erroroperator","errorservice","errorproject","errorsubject","errorsentto","errorDetailInfraRequest","errorClassification","errorFileRequestInfra"];
+  const before={}; ids.forEach(id=>{const e=document.getElementById(id); before[id]=e?(e.classList.contains("gu-hide")?"hidden":"VISIBLE"):"(no el)";});
+  let ret;
+  try { ret = (typeof infraRequestSubmit==="function")? infraRequestSubmit() : "fn missing"; } catch(e){ ret="threw: "+e.message; }
+  const after={}; ids.forEach(id=>{const e=document.getElementById(id); after[id]=e?(e.classList.contains("gu-hide")?"hidden":"VISIBLE"):"(no el)";});
+  return { categoryCheckCountry: (typeof categoryCheckCountry!=="undefined")?categoryCheckCountry:"undef", uploadedFiles: (typeof uploadedFiles!=="undefined")?uploadedFiles.length:"undef", validReturn: ret, visibleAfter: Object.entries(after).filter(([k,v])=>v==="VISIBLE").map(([k])=>k) };
+});
+console.log(JSON.stringify(diag,null,2));
+process.exit(0);

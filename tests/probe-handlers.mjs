@@ -1,0 +1,18 @@
+import { chromium } from "playwright";
+import { config as loadEnv } from "dotenv";
+import { readFile } from "node:fs/promises";
+loadEnv();
+const BASE=(process.env.LINKIT_BASE_URL||"https://report.linkit360.com").replace(/\/+$/,"");
+const SESSION=process.env.LINKIT_SESSION_PATH||".session/storage-state.json";
+const ctx = await (await chromium.launch({headless:true,args:["--no-sandbox"]})).newContext({storageState:JSON.parse(await readFile(SESSION,"utf8"))});
+const page = await ctx.newPage();
+await page.goto(BASE+"/ticketing-infra/create",{waitUntil:"networkidle"});
+const html = await page.content();
+const grab=(needle,before=80,after=420)=>{const i=html.indexOf(needle);return i<0?"(not found)":html.slice(Math.max(0,i-before),i+after).replace(/\s+/g," ");};
+console.log("=== handleFiles ==="); console.log(grab("function handleFiles"));
+console.log("\n=== allowedTypes / extensions ==="); console.log(grab("allowedTypes")); 
+console.log("\n=== accept/validTypes alt ==="); console.log(grab("validTypes")); 
+console.log("\n=== errorsentto validation ==="); console.log(grab("errorsentto",100,300));
+console.log("\n=== sent_to val check ==="); console.log(grab("sentto",60,200));
+console.log("\n=== uploadedFiles decl ==="); console.log(grab("uploadedFiles",40,260));
+process.exit(0);

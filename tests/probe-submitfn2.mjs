@@ -1,0 +1,16 @@
+import { chromium } from "playwright";
+import { config as loadEnv } from "dotenv";
+import { readFile } from "node:fs/promises";
+loadEnv();
+const BASE=(process.env.LINKIT_BASE_URL||"https://report.linkit360.com").replace(/\/+$/,"");
+const SESSION=process.env.LINKIT_SESSION_PATH||".session/storage-state.json";
+const ctx=await (await chromium.launch({headless:true,args:["--no-sandbox"]})).newContext({storageState:JSON.parse(await readFile(SESSION,"utf8"))});
+const page=await ctx.newPage();
+await page.goto(BASE+"/ticketing-infra/create",{waitUntil:"networkidle"});
+const html=await page.content();
+const i=html.indexOf("function infraRequestSubmit");
+console.log(html.slice(i+2000, i+4600).replace(/\n{2,}/g,"\n"));
+console.log("\n=== categoryCheckCountry def ===");
+const j=html.indexOf("categoryCheckCountry");
+console.log(html.slice(j-100, j+260).replace(/\s+/g," "));
+process.exit(0);

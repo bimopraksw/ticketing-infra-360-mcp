@@ -1,0 +1,64 @@
+{
+  "name": "ticketing-infra-360-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for LinkIT360 Ticketing-Infra (create & list infra tickets via browser automation).",
+  "type": "module",
+  "bin": {
+    "ticketing-infra-360-mcp": "dist/index.js",
+    "ticketing-infra-360-login": "dist/cli/login.js"
+  },
+  "main": "dist/index.js",
+  "files": [
+    "dist",
+    ".env.example",
+    "README.md",
+    "INSTALL.md",
+    "ADD-MCP-MANUALLY.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "watch": "tsc -p tsconfig.json --watch",
+    "start": "node dist/index.js",
+    "login": "node dist/cli/login.js",
+    "login:dev": "tsx src/cli/login.ts",
+    "dev": "tsx src/index.ts",
+    "inspector": "npx @modelcontextprotocol/inspector node dist/index.js",
+    "postinstall": "playwright install chromium",
+    "prepublishOnly": "npm run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "rimraf dist .session"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bimopraksw/ticketing-infra-360-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/bimopraksw/ticketing-infra-360-mcp/issues"
+  },
+  "homepage": "https://github.com/bimopraksw/ticketing-infra-360-mcp#readme",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ticketing-infra-360",
+    "linkit360",
+    "ticketing",
+    "playwright",
+    "automation"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "dotenv": "^16.4.5",
+    "playwright": "^1.48.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.0",
+    "rimraf": "^6.0.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
