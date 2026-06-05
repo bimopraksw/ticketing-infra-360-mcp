@@ -13,6 +13,65 @@ Pick one, then jump to [Register it with your agent](#3-register-it-with-your-ag
 
 ---
 
+## Quick start — Claude Desktop with `npx` (~10 min)
+
+Non-technical, on a normal desktop/laptop. Do these five steps in order.
+
+**1. Install Node.js 20+.** Download the **LTS** build from <https://nodejs.org>
+and run the installer. Verify: open a terminal (macOS: Terminal; Windows:
+PowerShell) and run `node -v` — it must print `v20.x` or higher.
+
+**2. Log in to LinkIT360 once** (solves the reCAPTCHA, saves your session).
+In the terminal, replace the email/password and run:
+
+```bash
+# macOS / Linux
+LINKIT_BASE_URL=https://report.linkit360.com \
+LINKIT_EMAIL=you@linkit360.com \
+LINKIT_PASSWORD='your-password' \
+npx -p ticketing-infra-360-mcp ticketing-infra-360-login
+```
+```powershell
+# Windows (PowerShell) — one line
+$env:LINKIT_BASE_URL="https://report.linkit360.com"; $env:LINKIT_EMAIL="you@linkit360.com"; $env:LINKIT_PASSWORD="your-password"; npx -p ticketing-infra-360-mcp ticketing-infra-360-login
+```
+First run downloads ~150 MB (once). A browser opens → tick **I'm not a robot** →
+click **Login**. Done when the terminal prints `✓ Session saved to ~/.linkit360/session.json`.
+
+**3. Register it in Claude Desktop.** Settings → Developer → **Edit Config**.
+If the file is empty, paste this and replace the two values:
+
+```json
+{
+  "mcpServers": {
+    "ticketing-infra-360": {
+      "command": "npx",
+      "args": ["-y", "ticketing-infra-360-mcp"],
+      "env": {
+        "LINKIT_BASE_URL": "https://report.linkit360.com",
+        "LINKIT_EMAIL": "you@linkit360.com",
+        "LINKIT_PASSWORD": "your-password"
+      }
+    }
+  }
+}
+```
+If it already has other servers, add only the `"ticketing-infra-360": { … }`
+entry inside `mcpServers`. Save the file.
+
+**4. Restart Claude Desktop** — fully quit (macOS `Cmd+Q`; Windows: tray icon →
+Quit), then reopen.
+
+**5. Test** — ask Claude: *"List the latest infra tickets in LinkIT360."*
+Live ticket rows = done. ✅
+
+> Stuck? See [Troubleshooting](#troubleshooting). Common on macOS: `spawn npx
+> ENOENT` — run `which npx` and use its output as `"command"` instead of `"npx"`.
+
+The rest of this guide is the full reference (other clients, from-source, etc.).
+
+---
+
 ## 0. Prerequisites
 
 | Requirement | Why |
