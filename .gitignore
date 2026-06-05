@@ -2,5 +2,7 @@ node_modules/
 dist/
 .session/
 .env
+.mcp.json
+claude-desktop-config.snippet.json
 *.log
 .DS_Store

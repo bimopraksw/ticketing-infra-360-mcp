@@ -372,8 +372,12 @@ export function registerTicketingTools(server: McpServer, ctx: AppContext): void
       title: "List / search tickets",
       description:
         "List tickets from a ticketing module's DataTable (infra, creative, media, " +
-        "or legal). Optional global `search` filters across columns (subject, ticket " +
-        "number, company, country, status, …). Returns rows keyed by column header.",
+        "or legal). The table is server-side, so this queries the DataTables endpoint " +
+        "directly: results default to NEWEST FIRST (sorted by created_at desc), " +
+        "`maxRows` is honoured as the real page size, and `page` gives true pagination. " +
+        "Optional global `search` filters across columns (subject, ticket number, " +
+        "company, country, status, creator email, …). Returns rows keyed by column " +
+        "header plus recordsTotal/recordsFiltered/totalPages for paging.",
       inputSchema: {
         module: z
           .enum(MODULES)
@@ -382,16 +386,44 @@ export function registerTicketingTools(server: McpServer, ctx: AppContext): void
         search: z
           .string()
           .optional()
-          .describe("Global search string (server-side filter across all columns)."),
+          .describe(
+            "Global search string (server-side, across all columns). Pass a creator " +
+              "email e.g. 'bimo.prakoso@linkit360.com' to list a person's tickets.",
+          ),
         maxRows: z
           .number()
           .int()
           .positive()
+          .max(500)
           .optional()
-          .describe("Maximum rows to return (default 25)."),
+          .describe("Page size — max rows per page, truly honoured (default 25, max 500)."),
+        page: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe("1-based page number for pagination (default 1). Page 1 = newest."),
+        sortBy: z
+          .string()
+          .optional()
+          .describe(
+            "Column to sort by (column `data` name, e.g. 'created_at', 'ticket_number', " +
+              "'subject'). Default 'created_at'.",
+          ),
+        sortOrder: z
+          .enum(["asc", "desc"])
+          .optional()
+          .describe("Sort direction. Default 'desc' (newest/highest first)."),
+        filters: z
+          .record(z.string())
+          .optional()
+          .describe(
+            "Advanced: extra server-side filter fields appended to the request " +
+              "(e.g. { status: '...', daterange: '...', from: 'YYYY-MM-DD', to: 'YYYY-MM-DD', company: '...' }).",
+          ),
       },
     },
-    async ({ module, search, maxRows }) => {
+    async ({ module, search, maxRows, page: pageNum, sortBy, sortOrder, filters }) => {
       await ctx.auth.ensureAuthenticated();
       const mod = (module ?? "infra") as Module;
       const url = resolveUrl(ctx.cfg.baseUrl, `/ticketing-${mod}/list`);
@@ -400,7 +432,14 @@ export function registerTicketingTools(server: McpServer, ctx: AppContext): void
         () =>
           ctx.browser.withPage(async (page) => {
             await page.goto(url, { waitUntil: "networkidle" });
-            const table = await extractDataTable(page, { search, maxRows });
+            const table = await extractDataTable(page, {
+              search,
+              maxRows,
+              page: pageNum,
+              sortBy,
+              sortOrder,
+              filters,
+            });
             return { module: mod, url: page.url(), ...table };
           }),
         { retries: ctx.cfg.maxRetries, label: "list_tickets" },

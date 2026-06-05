@@ -1,6 +1,6 @@
 {
   "name": "ticketing-infra-360-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "MCP server for LinkIT360 Ticketing-Infra (create & list infra tickets via browser automation).",
   "type": "module",
   "bin": {
