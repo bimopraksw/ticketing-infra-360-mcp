@@ -7,9 +7,8 @@ import { createContext } from "./context.js";
 import { registerAllTools } from "./tools/index.js";
 import { registerPrompts } from "./prompts/index.js";
 import { registerResources } from "./resources/index.js";
-import { startChromiumInstall } from "./utils/browser-bootstrap.js";
 
-const VERSION = "0.3.2";
+const VERSION = "0.3.3";
 
 function handleCliFlags(): boolean {
   const args = process.argv.slice(2);
@@ -67,10 +66,6 @@ async function main(): Promise<void> {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   logger.info("MCP server connected over stdio and ready");
-
-  // Kick off the Chromium download in the background (no-op if already present)
-  // so it's ready by the time the user logs in — without blocking any tool call.
-  startChromiumInstall();
 }
 
 main().catch((error) => {

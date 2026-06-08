@@ -4,7 +4,7 @@ import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { AppConfig } from "./config.js";
 import { logger } from "./logger.js";
-import { ensureChromiumReady, chromiumLaunchOptions } from "./utils/browser-bootstrap.js";
+import { requireChromium, chromiumLaunchOptions } from "./utils/browser-bootstrap.js";
 
 /**
  * Owns the single shared Chromium instance and browser context.
@@ -32,7 +32,7 @@ export class BrowserManager {
   }
 
   private async launch(): Promise<void> {
-    await ensureChromiumReady();
+    requireChromium();
     logger.info("Launching Chromium", { headless: this.cfg.headless });
     this.browser = await chromium.launch(
       chromiumLaunchOptions({ headless: this.cfg.headless }),
