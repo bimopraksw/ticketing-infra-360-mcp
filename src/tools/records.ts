@@ -5,6 +5,7 @@ import type { AppContext } from "../context.js";
 import { resolveUrl } from "../config.js";
 import { withRetry } from "../utils/retry.js";
 import { logger } from "../logger.js";
+import { selectByLabelOrValue, multiSelectByLabelOrValue, setRadio } from "../utils/forms.js";
 
 /**
  * Generic, fully-functional form writer used for create AND update.
@@ -33,17 +34,39 @@ const FieldOp = z.object({
 });
 
 async function applyField(page: Page, op: z.infer<typeof FieldOp>): Promise<void> {
-  const kind = op.kind ?? "text";
   const locator = page.locator(op.selector).first();
   await locator.waitFor({ state: "attached" });
 
+  // Inspect the real element so we can route correctly even when the caller
+  // didn't pass `kind` (e.g. a <select> mistakenly left as the default "text").
+  const meta = await locator.evaluate((el) => ({
+    tag: el.tagName.toLowerCase(),
+    type: (el.getAttribute("type") || "").toLowerCase(),
+    name: el.getAttribute("name") || "",
+    multiple: (el as HTMLSelectElement).multiple === true,
+  }));
+
+  let kind = op.kind;
+  if (!kind) {
+    if (meta.tag === "select") kind = "select";
+    else if (meta.type === "checkbox") kind = "checkbox";
+    else if (meta.type === "radio") kind = "radio";
+    else kind = "text";
+  }
+
   switch (kind) {
     case "select": {
-      // Try by value first, then by visible label.
-      try {
-        await locator.selectOption({ value: op.value });
-      } catch {
-        await locator.selectOption({ label: op.value });
+      // Use the select2-aware setter (jQuery val + trigger('change'), native
+      // fallback) so custom widgets like Select2 actually sync — Playwright's
+      // raw selectOption does not update the widget's internal model.
+      if (meta.multiple) {
+        await multiSelectByLabelOrValue(
+          page,
+          op.selector,
+          op.value.split(",").map((v) => v.trim()).filter(Boolean),
+        );
+      } else {
+        await selectByLabelOrValue(page, op.selector, op.value);
       }
       break;
     }
@@ -53,12 +76,14 @@ async function applyField(page: Page, op: z.infer<typeof FieldOp>): Promise<void
       break;
     }
     case "radio": {
-      // The selector may be the group; narrow to the matching value.
-      const exact = page.locator(`${op.selector}[value="${op.value}"]`).first();
-      if ((await exact.count()) > 0) {
-        await exact.check();
+      // setRadio fires the element's onclick handler (toggleFields, etc.) which
+      // a plain .check() can miss on custom-styled radios.
+      if (meta.name) {
+        await setRadio(page, meta.name, op.value);
       } else {
-        await locator.check();
+        const exact = page.locator(`${op.selector}[value="${op.value}"]`).first();
+        if ((await exact.count()) > 0) await exact.check();
+        else await locator.check();
       }
       break;
     }

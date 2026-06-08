@@ -12,6 +12,9 @@ import {
 } from "../utils/forms.js";
 import { extractDataTable } from "../utils/datatable.js";
 import { makeTextPdf } from "../utils/pdf.js";
+import { writeFileSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 /** Ticketing modules share the same UI structure. */
 const MODULES = ["infra", "creative", "media", "legal"] as const;
@@ -267,12 +270,16 @@ export function registerTicketingTools(server: McpServer, ctx: AppContext): void
             } else {
               const pdfText = input.attachmentText?.trim() || input.requestDetail;
               const pdf = makeTextPdf(pdfText, fullSubject);
-              await fileInput.setInputFiles({
-                name: "request-details.pdf",
-                mimeType: "application/pdf",
-                buffer: pdf,
-              });
-              applied.files = ["(auto-generated request-details.pdf)"];
+              // Write to a real, stable path (not just an in-memory buffer) so
+              // the file can be inspected or reused by a manual submit_form call.
+              const dir = join(tmpdir(), "ticketing-infra-360");
+              mkdirSync(dir, { recursive: true });
+              const safe = fullSubject.replace(/[^a-z0-9]+/gi, "-").slice(0, 60);
+              const pdfPath = join(dir, `${safe || "request-details"}.pdf`);
+              writeFileSync(pdfPath, pdf);
+              await fileInput.setInputFiles(pdfPath);
+              applied.files = [pdfPath];
+              applied.generatedPdfPath = pdfPath;
             }
             await page.waitForTimeout(1000); // let handleFiles() process
 
