@@ -7,6 +7,7 @@ import { resolveUrl } from "./config.js";
 import { logger } from "./logger.js";
 import { BrowserManager } from "./browser.js";
 import { withRetry } from "./utils/retry.js";
+import { ensureChromium } from "./utils/browser-bootstrap.js";
 
 /**
  * Candidate selectors tried (in order) when the login form fields are not
@@ -257,6 +258,7 @@ export class AuthManager {
     logger.info("Starting interactive login (headed browser)");
     let headed;
     try {
+      await ensureChromium();
       headed = await chromium.launch({ headless: false, args: ["--no-sandbox"] });
     } catch (e) {
       throw new Error(

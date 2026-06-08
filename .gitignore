@@ -6,3 +6,7 @@ dist/
 claude-desktop-config.snippet.json
 *.log
 .DS_Store
+
+# MCPB build artifacts
+mcpb-build/
+*.mcpb

@@ -1,0 +1,65 @@
+{
+  "manifest_version": "0.2",
+  "name": "ticketing-infra-360-mcp",
+  "display_name": "Ticketing-Infra-360 (LinkIT360)",
+  "version": "0.3.0",
+  "description": "Create and list LinkIT360 infra tickets from your AI agent.",
+  "long_description": "MCP server for LinkIT360 Ticketing-Infra. Create infra tickets and list/search tickets (newest-first, real pagination) via browser automation. Enter your LinkIT360 email and password below; the first time, ask the agent to \"log in to LinkIT360\" to solve the one-time reCAPTCHA in a real browser. The login session is saved and reused.",
+  "author": {
+    "name": "bimopraksw",
+    "url": "https://github.com/bimopraksw"
+  },
+  "homepage": "https://github.com/bimopraksw/ticketing-infra-360-mcp",
+  "documentation": "https://github.com/bimopraksw/ticketing-infra-360-mcp/blob/main/INSTALL.md",
+  "server": {
+    "type": "node",
+    "entry_point": "dist/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/dist/index.js"],
+      "env": {
+        "LINKIT_BASE_URL": "${user_config.base_url}",
+        "LINKIT_EMAIL": "${user_config.email}",
+        "LINKIT_PASSWORD": "${user_config.password}"
+      }
+    }
+  },
+  "tools": [
+    { "name": "login", "description": "Open a browser to log in to LinkIT360 (solve the reCAPTCHA once)." },
+    { "name": "check_session", "description": "Check whether the LinkIT360 session is authenticated." },
+    { "name": "create_infra_ticket", "description": "Create a new infra ticket." },
+    { "name": "list_tickets", "description": "List/search tickets (newest-first, paginated)." },
+    { "name": "list_services", "description": "List services." }
+  ],
+  "keywords": ["mcp", "linkit360", "ticketing", "infra", "playwright"],
+  "license": "MIT",
+  "user_config": {
+    "email": {
+      "type": "string",
+      "title": "LinkIT360 Email",
+      "description": "The email you use to log in at report.linkit360.com",
+      "required": true
+    },
+    "password": {
+      "type": "string",
+      "title": "LinkIT360 Password",
+      "description": "Your LinkIT360 password (stored securely by Claude Desktop).",
+      "sensitive": true,
+      "required": true
+    },
+    "base_url": {
+      "type": "string",
+      "title": "LinkIT360 Base URL",
+      "description": "Leave as default unless told otherwise.",
+      "default": "https://report.linkit360.com",
+      "required": false
+    }
+  },
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "node": ">=20.0.0"
+    }
+  }
+}
