@@ -2,10 +2,49 @@ import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
-import { chromium } from "playwright";
+import { chromium, type LaunchOptions } from "playwright";
 import { logger } from "../logger.js";
 
 const require = createRequire(import.meta.url);
+
+/**
+ * Build hardened Chromium launch options that work even when the server is
+ * spawned from inside an Electron host (e.g. Claude Desktop).
+ *
+ * - `--disable-gpu` / `--disable-software-rasterizer`: avoid the GPU/helper
+ *   subprocess crash seen when Chromium launches inside a sandboxed/Electron-
+ *   spawned process.
+ * - `--no-sandbox` / `--disable-dev-shm-usage`: standard flags for constrained
+ *   environments.
+ * - explicit `executablePath`: pin Playwright's own Chromium so nothing else
+ *   can be resolved by accident.
+ * - cleaned `env`: drop `ELECTRON_RUN_AS_NODE` (set by Electron hosts) so it
+ *   never leaks into the browser process.
+ */
+export function chromiumLaunchOptions(opts: { headless: boolean }): LaunchOptions {
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (v !== undefined && k !== "ELECTRON_RUN_AS_NODE") env[k] = v;
+  }
+  const launch: LaunchOptions = {
+    headless: opts.headless,
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--disable-software-rasterizer",
+    ],
+    env,
+  };
+  try {
+    const exe = chromium.executablePath();
+    if (existsSync(exe)) launch.executablePath = exe;
+  } catch {
+    /* ensureChromium() runs first; if path can't resolve, let launch use default */
+  }
+  return launch;
+}
 
 let ensured: Promise<void> | null = null;
 

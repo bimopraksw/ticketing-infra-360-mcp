@@ -15,7 +15,7 @@ import { existsSync } from "node:fs";
 import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { loadConfig, resolveUrl } from "../config.js";
-import { ensureChromium } from "../utils/browser-bootstrap.js";
+import { ensureChromium, chromiumLaunchOptions } from "../utils/browser-bootstrap.js";
 
 const cfg = loadConfig();
 const loginUrl = resolveUrl(cfg.baseUrl, cfg.login.path);
@@ -41,7 +41,7 @@ async function hasValidSessionFile(path: string): Promise<boolean> {
 async function main(): Promise<void> {
   console.error("Opening a visible browser for manual login…");
   await ensureChromium();
-  const browser = await chromium.launch({ headless: false, args: ["--no-sandbox"] });
+  const browser = await chromium.launch(chromiumLaunchOptions({ headless: false }));
   const context = await browser.newContext({
     locale: cfg.locale,
     storageState: (await hasValidSessionFile(cfg.sessionPath)) ? cfg.sessionPath : undefined,
