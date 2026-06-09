@@ -9,6 +9,7 @@ import {
   selectByLabelOrValue,
   multiSelectByLabelOrValue,
   setRadio,
+  readOptions,
 } from "../utils/forms.js";
 import { extractDataTable } from "../utils/datatable.js";
 import { makeTextPdf } from "../utils/pdf.js";
@@ -177,26 +178,67 @@ export function registerTicketingTools(server: McpServer, ctx: AppContext): void
               applied.otherCategory = input.otherCategory;
             }
 
-            // company (select) — also triggers dependent AJAX.
+            // Selecting the company fires AJAX that REPLACES the country list:
+            // it starts as a long unfiltered list (~194 countries) and is
+            // narrowed to the company's own countries (e.g. LinkIT.ID → only
+            // Indonesia). Capture the pre-selection signature so we can wait for
+            // that replacement to finish before touching country — picking too
+            // early grabs a stale value that the reload then wipes, which left
+            // country unset and silently blocked submit (worse on slow hosts).
+            const COUNTRY_SEL = 'select[name="country"]';
+            const countrySigBefore = input.country
+              ? (await readOptions(page, COUNTRY_SEL)).map((o) => o.value).join("|")
+              : "";
+
+            // company (select)
             applied.company = await selectByLabelOrValue(
               page,
               'select[name="company"]',
               input.company,
             );
-            await page.waitForTimeout(800);
 
             // service_type (radio)
             await setRadio(page, "service_type", input.serviceType);
             applied.serviceType = input.serviceType;
 
-            // country (optional) → may trigger operator/service population
+            // country (optional) → also drives operator/service population.
             if (input.country) {
-              applied.country = await selectByLabelOrValue(
-                page,
-                'select[name="country"]',
-                input.country,
-              );
-              await page.waitForTimeout(1200); // allow dependent dropdowns to load
+              // Wait until the company's AJAX has actually swapped the country
+              // list (its option set differs from before). If a company happens
+              // not to change it, this times out and we proceed anyway.
+              await page
+                .waitForFunction(
+                  ({ sel, before }) => {
+                    const s = document.querySelector(sel) as HTMLSelectElement | null;
+                    if (!s) return false;
+                    return (
+                      Array.from(s.options)
+                        .map((o) => o.value)
+                        .join("|") !== before
+                    );
+                  },
+                  { sel: COUNTRY_SEL, before: countrySigBefore },
+                  { timeout: 10000 },
+                )
+                .catch(() => undefined);
+              await page.waitForTimeout(300); // brief settle after the swap
+              try {
+                // Resolve by LABEL against the now company-specific list (values
+                // are company-scoped, so a raw value would be wrong).
+                applied.country = await selectByLabelOrValue(page, COUNTRY_SEL, input.country);
+              } catch {
+                const opts = await readOptions(page, COUNTRY_SEL);
+                const available = opts
+                  .filter((o) => o.value)
+                  .map((o) => o.label)
+                  .join(", ");
+                throw new Error(
+                  `Country "${input.country}" is not available for company "${input.company}". ` +
+                    `The country list is filtered by company — available for "${input.company}": ` +
+                    `${available || "(none loaded)"}. Use one of those, or pick the company that owns "${input.country}".`,
+                );
+              }
+              await page.waitForTimeout(1200); // allow operator/service to load
             }
             if (input.project) {
               await page.fill('input[name="project"]', input.project);
@@ -358,8 +400,11 @@ export function registerTicketingTools(server: McpServer, ctx: AppContext): void
                 : {
                     hint:
                       "No confirmation dialog appeared — the form's JS validation likely " +
-                      "blocked submit. Check that serviceType matches required fields " +
-                      "(project→project; service→operator+service) and all required fields are set.",
+                      "blocked submit. Most common cause: a required COUNTRY was not set " +
+                      "(categories like 'Server' and 'Domain/Pointing IP/Website' require it, " +
+                      "and the country list is filtered by company). Also verify serviceType " +
+                      "matches its required fields (project→project; service→operator+service)." +
+                      (input.country ? "" : " You did not pass a country — try adding one."),
                   }),
             };
           }),
