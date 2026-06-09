@@ -8,7 +8,7 @@ import { registerAllTools } from "./tools/index.js";
 import { registerPrompts } from "./prompts/index.js";
 import { registerResources } from "./resources/index.js";
 
-const VERSION = "0.3.5";
+const VERSION = "0.4.0";
 
 function handleCliFlags(): boolean {
   const args = process.argv.slice(2);

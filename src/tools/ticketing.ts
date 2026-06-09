@@ -70,6 +70,76 @@ async function collectMessages(page: Page): Promise<{ errors: string[]; notices:
   });
 }
 
+/**
+ * Country → company lookup, built from POST /ticketing-infra/company-operator
+ * (which returns a company's countries as [{country, country_code, ...}]).
+ * Each country belongs to exactly one company, so this lets callers pass just a
+ * country and have the company auto-resolved. Cached per server process.
+ */
+// country (name or code) -> companies that operate it, in company-dropdown order.
+// A country can belong to several companies (e.g. Indonesia → LinkIT.ID and
+// LinkIT.7Star), so we keep all candidates and let the caller pick the first.
+let companyByCountry: Map<string, string[]> | null = null;
+
+async function buildCompanyByCountry(page: Page): Promise<Map<string, string[]>> {
+  if (companyByCountry) return companyByCountry;
+  const csrf = await page.evaluate(
+    () => document.querySelector('meta[name="csrf-token"]')?.getAttribute("content") ?? "",
+  );
+  const companies = (await readOptions(page, 'select[name="company"]')).filter((o) => o.value);
+  const url = new URL("/ticketing-infra/company-operator", new URL(page.url())).toString();
+  const req = page.context().request;
+
+  // Fetch in parallel (fast), but keep results in company order for determinism.
+  const perCompany = await Promise.all(
+    companies.map(async (c) => {
+      try {
+        const r = await req.post(url, {
+          headers: {
+            "X-CSRF-TOKEN": csrf,
+            "X-Requested-With": "XMLHttpRequest",
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          data: `id=${encodeURIComponent(c.value)}`,
+        });
+        if (!r.ok()) return { label: c.label, keys: [] as string[] };
+        const arr = (await r.json()) as Array<{ country?: string; country_code?: string }>;
+        const keys = Array.isArray(arr)
+          ? arr.flatMap((row) => {
+              const out: string[] = [];
+              const name = String(row.country ?? "").trim().toLowerCase();
+              const code = String(row.country_code ?? "").trim().toLowerCase();
+              if (name) out.push(name);
+              if (code) out.push(`code:${code}`);
+              return out;
+            })
+          : [];
+        return { label: c.label, keys };
+      } catch {
+        return { label: c.label, keys: [] as string[] };
+      }
+    }),
+  );
+
+  const map = new Map<string, string[]>();
+  for (const { label, keys } of perCompany) {
+    for (const key of keys) {
+      const arr = map.get(key) ?? [];
+      if (!arr.includes(label)) arr.push(label);
+      map.set(key, arr);
+    }
+  }
+  companyByCountry = map;
+  return map;
+}
+
+/** Companies that own a given country (by name or ISO code), dropdown order. */
+async function resolveCompaniesByCountry(page: Page, country: string): Promise<string[]> {
+  const map = await buildCompanyByCountry(page);
+  const key = country.trim().toLowerCase();
+  return map.get(key) ?? map.get(`code:${key}`) ?? [];
+}
+
 export function registerTicketingTools(server: McpServer, ctx: AppContext): void {
   // -------------------------------------------------------------------------
   // create_infra_ticket  (PRIORITY — fully typed)
@@ -99,7 +169,16 @@ export function registerTicketingTools(server: McpServer, ctx: AppContext): void
           .string()
           .optional()
           .describe("Free-text category, required when category is 'Other'."),
-        company: z.string().describe("Company label (e.g. 'LinkIT.MENA') or value."),
+        company: z
+          .string()
+          .optional()
+          .describe(
+            "Company label (e.g. 'LinkIT.MENA') or value. OPTIONAL — if omitted, it is " +
+              "auto-resolved from `country` WHEN that country maps to a single company " +
+              "(e.g. Egypt→LinkIT.MENA). If the country is operated by several companies " +
+              "(e.g. Indonesia), the tool returns the candidate list and asks you to pick " +
+              "one. Provide either `company` or `country`.",
+          ),
         serviceType: z
           .enum(["service", "project"])
           .describe(
@@ -190,11 +269,39 @@ export function registerTicketingTools(server: McpServer, ctx: AppContext): void
               ? (await readOptions(page, COUNTRY_SEL)).map((o) => o.value).join("|")
               : "";
 
+            // Resolve the company: use it as given, or auto-derive it from the
+            // country (each country belongs to exactly one company).
+            let companyToSelect = input.company;
+            if (!companyToSelect) {
+              if (!input.country) {
+                throw new Error(
+                  "Provide either `company` or `country` — the company is auto-resolved from country.",
+                );
+              }
+              const candidates = await resolveCompaniesByCountry(page, input.country);
+              if (candidates.length === 0) {
+                throw new Error(
+                  `Could not find a company that operates country "${input.country}". ` +
+                    "Check the spelling, or pass an explicit `company`.",
+                );
+              }
+              if (candidates.length > 1) {
+                // A country is often operated by several companies — don't guess
+                // (wrong company on a real ticket is bad). Ask the caller to pick.
+                throw new Error(
+                  `Country "${input.country}" is operated by ${candidates.length} companies: ` +
+                    `${candidates.join(", ")}. Re-run with an explicit \`company\` set to one of these.`,
+                );
+              }
+              companyToSelect = candidates[0];
+              applied.companyAutoResolved = companyToSelect;
+            }
+
             // company (select)
             applied.company = await selectByLabelOrValue(
               page,
               'select[name="company"]',
-              input.company,
+              companyToSelect,
             );
 
             // service_type (radio)
@@ -233,8 +340,8 @@ export function registerTicketingTools(server: McpServer, ctx: AppContext): void
                   .map((o) => o.label)
                   .join(", ");
                 throw new Error(
-                  `Country "${input.country}" is not available for company "${input.company}". ` +
-                    `The country list is filtered by company — available for "${input.company}": ` +
+                  `Country "${input.country}" is not available for company "${companyToSelect}". ` +
+                    `The country list is filtered by company — available for "${companyToSelect}": ` +
                     `${available || "(none loaded)"}. Use one of those, or pick the company that owns "${input.country}".`,
                 );
               }
