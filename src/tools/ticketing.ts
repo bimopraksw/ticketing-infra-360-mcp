@@ -149,14 +149,20 @@ export function registerTicketingTools(server: McpServer, ctx: AppContext): void
     {
       title: "Create an Infra ticket",
       description:
-        "Create a new IT/Infrastructure ticket (POST /ticketing-infra/request). " +
-        "Dropdown inputs accept either the visible label (e.g. company 'LinkIT.MENA', " +
-        "a country name) or the raw option value; they are resolved against the live " +
-        "form. The subject is auto-prefixed with 'LinkIT - Infra - ' (required by the " +
-        "form). `serviceType` is REQUIRED — if the user hasn't said whether the ticket " +
-        "is for a 'service' or a 'project', ASK them; do not guess. At least one " +
-        "attachment is required: pass `files`, or pass `attachmentText` (or rely on " +
-        "requestDetail) and a neat PDF is generated automatically. Use dryRun=true first.",
+        "THE tool for creating a LinkIT360 infra ticket (POST /ticketing-infra/request). " +
+        "ALWAYS use this — do NOT use submit_form for infra tickets. " +
+        "IMPORTANT: the attachment is handled FOR YOU — this tool generates a neat PDF " +
+        "from requestDetail automatically. Do NOT generate a PDF yourself and do NOT ask " +
+        "the user to upload a file; only pass `files` if the user explicitly provided a " +
+        "real file path. Recipients also default automatically (it.support@ + infra@), so " +
+        "don't ask for recipients either. " +
+        "Dropdown inputs accept the visible label or the raw value, resolved against the " +
+        "live form. The subject is auto-prefixed with 'LinkIT - Infra - '. " +
+        "`serviceType` is REQUIRED — if the user didn't say 'service' or 'project', ASK; " +
+        "do not guess. `company` is optional and auto-resolved from `country`; if a country " +
+        "is operated by several companies the tool will tell you the candidates — ASK the " +
+        "user which company (don't fall back to another tool). Run dryRun=true first, then " +
+        "dryRun=false to actually submit.",
       inputSchema: {
         subject: z
           .string()

@@ -128,11 +128,13 @@ export function registerRecordTools(server: McpServer, ctx: AppContext): void {
     {
       title: "Fill and submit a form (create/update)",
       description:
-        "Authenticate, open a page containing a form, fill the provided fields, " +
-        "and submit it. Works for both creating and updating records — point it " +
-        "at the create page or an edit page. Field selectors come from " +
-        "`inspect_form`. Returns the final URL plus any success/validation " +
-        "messages so you can confirm the write succeeded.",
+        "GENERIC form writer for arbitrary pages. " +
+        "Do NOT use this for infra tickets — use `create_infra_ticket` instead (it " +
+        "auto-fills recipients and generates the PDF attachment; submit_form does " +
+        "neither, which leads to dead ends like asking the user to upload a file). " +
+        "Authenticate, open a page containing a form, fill the provided fields, and " +
+        "submit it (create or edit page). Field selectors come from `inspect_form`. " +
+        "Returns the final URL plus any success/validation messages.",
       inputSchema: {
         path: z
           .string()
