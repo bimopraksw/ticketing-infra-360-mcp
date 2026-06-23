@@ -529,6 +529,196 @@ export function registerTicketingTools(server: McpServer, ctx: AppContext): void
   );
 
   // -------------------------------------------------------------------------
+  // get_ticket_detail  — reply + activity scraper
+  // -------------------------------------------------------------------------
+  server.registerTool(
+    "get_ticket_detail",
+    {
+      title: "Get ticket detail (reply + activity)",
+      description:
+        "Open a ticket detail page and return the full reply from the infra team " +
+        "plus the complete Activity Ticket log. Use this after `list_tickets` to read " +
+        "the answer/credentials that infra posted in reply to a ticket. " +
+        "Pass either `ticketId` (numeric, e.g. 42) or a full `path` " +
+        "(e.g. '/ticketing-infra/detail/42'). `module` defaults to 'infra'.",
+      inputSchema: {
+        ticketId: z
+          .union([z.string(), z.number()])
+          .optional()
+          .describe("Numeric ticket ID (e.g. 42). Use this OR `path`."),
+        path: z
+          .string()
+          .optional()
+          .describe(
+            "Full path to the ticket detail page, e.g. '/ticketing-infra/detail/42'. " +
+              "Use this OR `ticketId`.",
+          ),
+        module: z
+          .enum(MODULES)
+          .default("infra")
+          .describe("Ticketing module (default 'infra')."),
+      },
+    },
+    async ({ ticketId, path: inputPath, module }) => {
+      await ctx.auth.ensureAuthenticated();
+      const mod = (module ?? "infra") as Module;
+
+      if (!ticketId && !inputPath) {
+        throw new Error("Provide either `ticketId` or `path`.");
+      }
+
+      const detailPath = inputPath ?? `/ticketing-${mod}/detail/${ticketId}`;
+      const url = resolveUrl(ctx.cfg.baseUrl, detailPath);
+
+      const result = await withRetry(
+        () =>
+          ctx.browser.withPage(async (page) => {
+            await page.goto(url, { waitUntil: "networkidle" });
+
+            const data = await page.evaluate(() => {
+              // ---- Reply sections ----
+              // The page may have one or more reply blocks. Each block has a
+              // header row ("Reply By : <email>" on the left, datetime on the
+              // right) and a body row with the reply text.
+              const replies: Array<{
+                replyBy: string;
+                datetime: string;
+                text: string;
+              }> = [];
+
+              // Strategy 1: look for elements whose text starts with "Reply By"
+              // (covers both table-cell and div layouts).
+              const replyByEls = Array.from(document.querySelectorAll("*")).filter((el) => {
+                if (el.children.length > 5) return false; // skip containers
+                const t = (el.textContent || "").trim();
+                return t.startsWith("Reply By");
+              });
+
+              for (const header of replyByEls) {
+                // Extract replier email
+                const headerText = (header.textContent || "").trim();
+                const emailMatch = headerText.match(/Reply By\s*[:\-]?\s*(.+)/i);
+                const replyBy = emailMatch ? emailMatch[1].trim() : "";
+
+                // Datetime: look in the same row/sibling
+                let datetime = "";
+                const parent = header.parentElement;
+                if (parent) {
+                  // Check siblings and children for a date pattern
+                  const dateEl = Array.from(parent.querySelectorAll("*")).find(
+                    (el) =>
+                      el !== header &&
+                      /\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}/.test(el.textContent || ""),
+                  );
+                  if (dateEl) {
+                    const m = (dateEl.textContent || "").match(
+                      /\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}/,
+                    );
+                    datetime = m ? m[0] : "";
+                  }
+                }
+
+                // Reply body: next sibling row / next sibling element
+                let bodyText = "";
+                const row = header.closest("tr");
+                if (row) {
+                  const nextRow = row.nextElementSibling;
+                  if (nextRow) bodyText = (nextRow.textContent || "").trim().replace(/\s+/g, " ");
+                } else if (parent) {
+                  const nextEl = parent.nextElementSibling;
+                  if (nextEl) bodyText = (nextEl.textContent || "").trim().replace(/\s+/g, " ");
+                }
+
+                if (replyBy || bodyText) {
+                  replies.push({ replyBy, datetime, text: bodyText });
+                }
+              }
+
+              // ---- Activity Ticket table ----
+              const activities: Array<Record<string, string>> = [];
+
+              // Find the "Activity Ticket" section header, then grab the table.
+              const allEls = Array.from(document.querySelectorAll("*"));
+              const activityHeader = allEls.find((el) => {
+                if (el.children.length > 3) return false;
+                return /activity\s+ticket/i.test((el.textContent || "").trim());
+              });
+
+              let activityTable: Element | null = null;
+              if (activityHeader) {
+                // Walk up to a section/card then search downward for a table.
+                let cursor: Element | null = activityHeader;
+                for (let i = 0; i < 6 && cursor; i++) {
+                  const tbl = cursor.querySelector("table");
+                  if (tbl) {
+                    activityTable = tbl;
+                    break;
+                  }
+                  cursor = cursor.parentElement;
+                }
+              }
+
+              if (!activityTable) {
+                // Fallback: find the table that has "Activity" in its header row.
+                for (const tbl of Array.from(document.querySelectorAll("table"))) {
+                  const hdr = tbl.querySelector("thead");
+                  if (hdr && /activity/i.test(hdr.textContent || "")) {
+                    activityTable = tbl;
+                    break;
+                  }
+                }
+              }
+
+              if (activityTable) {
+                const headers = Array.from(
+                  activityTable.querySelectorAll("thead th, thead td"),
+                ).map((h) => (h.textContent || "").trim().replace(/\s+/g, " "));
+
+                const rows = Array.from(activityTable.querySelectorAll("tbody tr"));
+                for (const row of rows) {
+                  const cells = Array.from(row.querySelectorAll("td")).map((td) =>
+                    (td.textContent || "").trim().replace(/\s+/g, " "),
+                  );
+                  if (cells.every((c) => !c)) continue; // skip empty rows
+                  const obj: Record<string, string> = {};
+                  headers.forEach((h, i) => {
+                    obj[h || `col${i}`] = cells[i] ?? "";
+                  });
+                  activities.push(obj);
+                }
+              }
+
+              // ---- Basic ticket meta (title, status, etc.) ----
+              const title = document.title;
+              const pageText = (document.body?.innerText || "")
+                .replace(/\n{3,}/g, "\n\n")
+                .slice(0, 3000);
+
+              return { title, pageText, replies, activities };
+            });
+
+            logger.info("get_ticket_detail", {
+              url: page.url(),
+              repliesFound: data.replies.length,
+              activitiesFound: data.activities.length,
+            });
+
+            return {
+              url: page.url(),
+              title: data.title,
+              replies: data.replies,
+              activities: data.activities,
+              rawText: data.pageText,
+            };
+          }),
+        { retries: ctx.cfg.maxRetries, label: "get_ticket_detail" },
+      );
+
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    },
+  );
+
+  // -------------------------------------------------------------------------
   // list_tickets  (infra/creative/media/legal)
   // -------------------------------------------------------------------------
   server.registerTool(
