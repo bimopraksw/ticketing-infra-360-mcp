@@ -71,14 +71,105 @@ async function collectMessages(page: Page): Promise<{ errors: string[]; notices:
 }
 
 /**
+ * Static country → company fallback, captured from the live
+ * /ticketing-infra/company-operator data (e.g. LinkIT.SEA covers Cambodia,
+ * Laos, Myanmar, Philippines, Vietnam and shares Thailand with LinkIT.Asia).
+ *
+ * The live lookup below is still the source of truth (companies/countries can
+ * change), but this guarantees a KNOWN country never dead-ends with "no company
+ * found" when the live AJAX call hiccups — which is exactly the "Cambodia is
+ * obviously in LinkIT.SEA, just find it" case. Values are company LABELS as
+ * they appear in the company dropdown.
+ */
+const COUNTRY_COMPANY_FALLBACK: Record<string, string[]> = {
+  // LinkIT.SEA
+  cambodia: ["LinkIT.SEA"],
+  laos: ["LinkIT.SEA"],
+  myanmar: ["LinkIT.SEA"],
+  philippines: ["LinkIT.SEA"],
+  vietnam: ["LinkIT.SEA"],
+  thailand: ["LinkIT.SEA", "LinkIT.Asia"], // shared region
+  // LinkIT.Asia
+  bangladesh: ["LinkIT.Asia"],
+  haiti: ["LinkIT.Asia"],
+  malaysia: ["LinkIT.Asia"],
+  pakistan: ["LinkIT.Asia"],
+  "sri lanka": ["LinkIT.Asia"],
+  "timor leste": ["LinkIT.Asia"],
+  // Indonesia is operated by two entities — keep both so we still ask.
+  indonesia: ["LinkIT.ID", "LinkIT.7Star"],
+};
+
+/** Common country aliases / codes → the canonical name used in the maps. */
+const COUNTRY_ALIASES: Record<string, string> = {
+  "viet nam": "vietnam",
+  vn: "vietnam",
+  kampuchea: "cambodia",
+  khmer: "cambodia",
+  kh: "cambodia",
+  lao: "laos",
+  "lao pdr": "laos",
+  la: "laos",
+  burma: "myanmar",
+  mm: "myanmar",
+  ph: "philippines",
+  pilipinas: "philippines",
+  th: "thailand",
+  id: "indonesia",
+  "republic of indonesia": "indonesia",
+  "east timor": "timor leste",
+  "timor-leste": "timor leste",
+};
+
+/** Lowercase, collapse whitespace, and resolve known aliases to a canonical name. */
+function normalizeCountry(raw: string): string {
+  const k = raw.trim().toLowerCase().replace(/\s+/g, " ");
+  return COUNTRY_ALIASES[k] ?? k;
+}
+
+/**
+ * Some companies are SaaS/product entities (LinkIT.SaaS.Airpay, ...Airgift,
+ * GetWellsoon, LinkIT.OTT) that "operate" a country only incidentally — they are
+ * NOT the country's regional operator. When a real regional company (e.g.
+ * LinkIT.SEA for Cambodia) is also available, we prefer it. This is what makes
+ * "Cambodia → LinkIT.SEA" resolve automatically even though the raw data lists
+ * Cambodia under both LinkIT.SaaS.Airgift and LinkIT.SEA.
+ */
+const NON_REGIONAL_COMPANY_RE = /saas|airgift|airpay|getwellsoon|\.ott\b/i;
+
+/**
+ * Given the candidate companies that operate a country, pick the single right
+ * one when we confidently can, else return null so the caller asks the user.
+ * Preference order:
+ *   1) exactly one candidate → use it;
+ *   2) the country's known regional company (static map) intersected with the
+ *      live candidates narrows to exactly one → use it (Cambodia → LinkIT.SEA);
+ *   3) dropping SaaS/product companies leaves exactly one real operator → use it;
+ *   otherwise → null (genuinely shared, e.g. Indonesia → LinkIT.ID vs LinkIT.7Star).
+ */
+function preferCompany(country: string, candidates: string[]): string | null {
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) return candidates[0];
+
+  const norm = normalizeCountry(country);
+  const known = COUNTRY_COMPANY_FALLBACK[norm] ?? COUNTRY_COMPANY_FALLBACK[country.trim().toLowerCase()] ?? [];
+  const knownInLive = candidates.filter((c) => known.includes(c));
+  if (knownInLive.length === 1) return knownInLive[0];
+
+  const regional = candidates.filter((c) => !NON_REGIONAL_COMPANY_RE.test(c));
+  if (regional.length === 1) return regional[0];
+
+  return null;
+}
+
+/**
  * Country → company lookup, built from POST /ticketing-infra/company-operator
  * (which returns a company's countries as [{country, country_code, ...}]).
- * Each country belongs to exactly one company, so this lets callers pass just a
- * country and have the company auto-resolved. Cached per server process.
+ * A country can belong to several companies (e.g. Indonesia → LinkIT.ID and
+ * LinkIT.7Star, Thailand → LinkIT.SEA and LinkIT.Asia), so we keep all
+ * candidates and let the caller pick. Cached per server process.
  */
 // country (name or code) -> companies that operate it, in company-dropdown order.
-// A country can belong to several companies (e.g. Indonesia → LinkIT.ID and
-// LinkIT.7Star), so we keep all candidates and let the caller pick the first.
 let companyByCountry: Map<string, string[]> | null = null;
 
 async function buildCompanyByCountry(page: Page): Promise<Map<string, string[]>> {
@@ -102,7 +193,7 @@ async function buildCompanyByCountry(page: Page): Promise<Map<string, string[]>>
           },
           data: `id=${encodeURIComponent(c.value)}`,
         });
-        if (!r.ok()) return { label: c.label, keys: [] as string[] };
+        if (!r.ok()) return { label: c.label, keys: [] as string[], ok: false };
         const arr = (await r.json()) as Array<{ country?: string; country_code?: string }>;
         const keys = Array.isArray(arr)
           ? arr.flatMap((row) => {
@@ -114,9 +205,9 @@ async function buildCompanyByCountry(page: Page): Promise<Map<string, string[]>>
               return out;
             })
           : [];
-        return { label: c.label, keys };
+        return { label: c.label, keys, ok: true };
       } catch {
-        return { label: c.label, keys: [] as string[] };
+        return { label: c.label, keys: [] as string[], ok: false };
       }
     }),
   );
@@ -129,15 +220,42 @@ async function buildCompanyByCountry(page: Page): Promise<Map<string, string[]>>
       map.set(key, arr);
     }
   }
-  companyByCountry = map;
+  // Only cache when EVERY company answered. A partial map could drop the regional
+  // company for a shared country (e.g. Cambodia under both LinkIT.SaaS.Airgift and
+  // LinkIT.SEA) and silently mis-route tickets for the rest of the process, so we
+  // leave it uncached and let the next call rebuild it.
+  if (perCompany.every((p) => p.ok)) companyByCountry = map;
   return map;
 }
 
 /** Companies that own a given country (by name or ISO code), dropdown order. */
 async function resolveCompaniesByCountry(page: Page, country: string): Promise<string[]> {
-  const map = await buildCompanyByCountry(page);
-  const key = country.trim().toLowerCase();
-  return map.get(key) ?? map.get(`code:${key}`) ?? [];
+  const raw = country.trim().toLowerCase();
+  const norm = normalizeCountry(country);
+
+  // Live lookup is authoritative — try normalized name, raw name, then ISO code.
+  let map: Map<string, string[]>;
+  try {
+    map = await buildCompanyByCountry(page);
+  } catch {
+    map = new Map();
+  }
+  const live =
+    map.get(norm) ??
+    map.get(raw) ??
+    map.get(`code:${norm}`) ??
+    map.get(`code:${raw}`) ??
+    [];
+
+  // Always union the curated static mapping for KNOWN countries. This guards the
+  // shared-country case: if a partial/hiccuping live fetch dropped the regional
+  // company (e.g. Cambodia lost LinkIT.SEA, leaving only LinkIT.SaaS.Airgift),
+  // we re-add it so preferCompany can still choose the regional operator instead
+  // of silently picking the SaaS entity. The chosen label is resolved against the
+  // full live company dropdown later, so a company that truly isn't there still
+  // surfaces a clear error rather than a wrong submit.
+  const known = COUNTRY_COMPANY_FALLBACK[norm] ?? COUNTRY_COMPANY_FALLBACK[raw] ?? [];
+  return Array.from(new Set([...live, ...known]));
 }
 
 export function registerTicketingTools(server: McpServer, ctx: AppContext): void {
@@ -159,10 +277,15 @@ export function registerTicketingTools(server: McpServer, ctx: AppContext): void
         "Dropdown inputs accept the visible label or the raw value, resolved against the " +
         "live form. The subject is auto-prefixed with 'LinkIT - Infra - '. " +
         "`serviceType` is REQUIRED — if the user didn't say 'service' or 'project', ASK; " +
-        "do not guess. `company` is optional and auto-resolved from `country`; if a country " +
-        "is operated by several companies the tool will tell you the candidates — ASK the " +
-        "user which company (don't fall back to another tool). Run dryRun=true first, then " +
-        "dryRun=false to actually submit.",
+        "do not guess. `company` is optional and auto-resolved from `country` (e.g. " +
+        "Cambodia/Laos/Myanmar/Philippines/Vietnam → LinkIT.SEA); if a country is operated " +
+        "by several companies the tool returns the candidates — ASK the user which company " +
+        "(don't fall back to another tool). " +
+        "CLASSIFICATION defaults to P3 — leave it unset unless the user explicitly asks for " +
+        "higher priority. P0/P1/P2 trigger the approval workflow: pass an `approver` (ask " +
+        "the user who approves and why) — the tool CCs them and records it, and the ticket " +
+        "enters 'Waiting Approval' until approved. Run dryRun=true first, then dryRun=false " +
+        "to actually submit.",
       inputSchema: {
         subject: z
           .string()
@@ -195,7 +318,29 @@ export function registerTicketingTools(server: McpServer, ctx: AppContext): void
           ),
         classification: z
           .enum(["P0", "P1", "P2", "P3", "P4"])
-          .describe("Priority classification (P0 highest)."),
+          .optional()
+          .describe(
+            "Priority classification (P0 highest). OPTIONAL — defaults to P3. " +
+              "Only set P0, P1, or P2 when the user EXPLICITLY asks for higher " +
+              "priority; those trigger the approval workflow and require an `approver`.",
+          ),
+        approver: z
+          .string()
+          .optional()
+          .describe(
+            "Who will approve this ticket. REQUIRED when classification is P0/P1/P2 " +
+              "(the new approval workflow). Pass the approver's name as it appears in " +
+              "the recipient list; they are CC'd and recorded in the request. Ignored " +
+              "for P3/P4 (no approval needed). If the user asked for high priority but " +
+              "didn't name an approver, ASK them first.",
+          ),
+        approvalReason: z
+          .string()
+          .optional()
+          .describe(
+            "Short justification for why P0/P1/P2 priority is warranted. Recorded in " +
+              "the ticket so the approver has context. Optional.",
+          ),
         requestDetail: z.string().min(1).describe("Detailed description of the request."),
         sentTo: z
           .array(z.string())
@@ -239,6 +384,54 @@ export function registerTicketingTools(server: McpServer, ctx: AppContext): void
     async (input) => {
       await ctx.auth.ensureAuthenticated();
       const url = resolveUrl(ctx.cfg.baseUrl, "/ticketing-infra/create");
+
+      // Classification defaults to P3 (no approval). P0/P1/P2 enter the approval
+      // workflow and need a named approver — fail fast and tell the agent to ask
+      // the user, rather than silently creating a high-priority ticket.
+      const classification = input.classification ?? ctx.cfg.defaultClassification;
+      const needsApproval = ["P0", "P1", "P2"].includes(classification);
+      if (needsApproval && !input.approver?.trim()) {
+        throw new Error(
+          `Classification ${classification} requires approval under the new ticketing ` +
+            `workflow. Before creating it, ask the user WHO should approve this ticket ` +
+            `(the approver's name as it appears in the recipient list) and WHY ` +
+            `${classification} priority is needed, then re-run with \`approver\` set ` +
+            `(and optionally \`approvalReason\`). If high priority isn't truly required, ` +
+            `set classification to P3 or P4 (no approval needed).`,
+        );
+      }
+      const approver = input.approver?.trim();
+      const approvalNote = needsApproval
+        ? `\n\n----------------------------------------\n` +
+          `PRIORITY: ${classification} (high — approval expected)\n` +
+          `Requested approver: ${approver}\n` +
+          `Justification: ${input.approvalReason?.trim() || "(not provided)"}\n` +
+          `This is a high-priority request; under the approval workflow it is expected to ` +
+          `require approval before the infra team acts.`
+        : "";
+      const approvalSummary = needsApproval
+        ? {
+            classification,
+            approver,
+            // Worded conditionally: whether a ticket actually lands in "Waiting
+            // Approval" is decided by the backend/reviewer, not by this tool. We
+            // record the requested approver and flag that approval is expected.
+            status: "High priority — approval expected before infra acts",
+            note:
+              "The approver has been recorded (and CC'd when possible). Under the ticketing " +
+              "approval workflow a high-priority ticket typically enters 'Waiting Approval' and " +
+              "must be approved in the ticket review panel before the infra team acts. Track its " +
+              "status in the ticket list.",
+          }
+        : undefined;
+
+      // Deterministic input-validation errors (ambiguous company, unknown country,
+      // missing otherCategory) are NOT transient — don't burn retries reopening the
+      // page; surface them immediately so the agent can ask the user.
+      const isDeterministicInputError = (e: unknown): boolean =>
+        /is operated by \d+ companies|Could not find a company|is not available for company|otherCategory is required|Provide either `company`/i.test(
+          e instanceof Error ? e.message : String(e),
+        );
 
       const result = await withRetry(
         () =>
@@ -291,16 +484,20 @@ export function registerTicketingTools(server: McpServer, ctx: AppContext): void
                     "Check the spelling, or pass an explicit `company`.",
                 );
               }
-              if (candidates.length > 1) {
-                // A country is often operated by several companies — don't guess
-                // (wrong company on a real ticket is bad). Ask the caller to pick.
+              // Prefer the regional operator when a country is also listed under a
+              // SaaS/product company (e.g. Cambodia → LinkIT.SEA, not the SaaS one).
+              const picked = preferCompany(input.country, candidates);
+              if (!picked) {
+                // Genuinely shared between real operators (e.g. Indonesia) — don't
+                // guess (wrong company on a real ticket is bad). Ask the caller.
                 throw new Error(
                   `Country "${input.country}" is operated by ${candidates.length} companies: ` +
                     `${candidates.join(", ")}. Re-run with an explicit \`company\` set to one of these.`,
                 );
               }
-              companyToSelect = candidates[0];
+              companyToSelect = picked;
               applied.companyAutoResolved = companyToSelect;
+              if (candidates.length > 1) applied.companyCandidates = candidates;
             }
 
             // company (select)
@@ -337,8 +534,23 @@ export function registerTicketingTools(server: McpServer, ctx: AppContext): void
               await page.waitForTimeout(300); // brief settle after the swap
               try {
                 // Resolve by LABEL against the now company-specific list (values
-                // are company-scoped, so a raw value would be wrong).
-                applied.country = await selectByLabelOrValue(page, COUNTRY_SEL, input.country);
+                // are company-scoped, so a raw value would be wrong). Try the name
+                // as given first, then the normalized alias — so "Viet Nam",
+                // "Burma", "East Timor", etc. still match the dropdown's canonical
+                // label ("Vietnam", "Myanmar", "Timor Leste").
+                const tries = Array.from(new Set([input.country, normalizeCountry(input.country)]));
+                let countryErr: unknown;
+                let set = false;
+                for (const candidate of tries) {
+                  try {
+                    applied.country = await selectByLabelOrValue(page, COUNTRY_SEL, candidate);
+                    set = true;
+                    break;
+                  } catch (e) {
+                    countryErr = e;
+                  }
+                }
+                if (!set) throw countryErr ?? new Error("country not matched");
               } catch {
                 const opts = await readOptions(page, COUNTRY_SEL);
                 const available = opts
@@ -387,12 +599,30 @@ export function registerTicketingTools(server: McpServer, ctx: AppContext): void
               'select[name="sent_to[]"]',
               input.sentTo,
             );
-            if (input.ccEmail?.length) {
+            const ccInputs = [...(input.ccEmail ?? [])];
+            if (ccInputs.length) {
               applied.ccEmail = await multiSelectByLabelOrValue(
                 page,
                 'select[name="cc_email[]"]',
-                input.ccEmail,
+                ccInputs,
               );
+            }
+            // Notify the approver by CC'ing them too (best-effort: if their name
+            // isn't a selectable recipient we keep going — they're still recorded
+            // in the request detail below).
+            if (needsApproval && approver) {
+              try {
+                applied.ccEmail = await multiSelectByLabelOrValue(
+                  page,
+                  'select[name="cc_email[]"]',
+                  [...ccInputs, approver],
+                );
+                applied.approverCc = approver;
+              } catch (e) {
+                applied.approverCcWarning =
+                  `Could not CC approver "${approver}" (not in the recipient list); ` +
+                  `it is still documented in the request detail. ${(e as Error).message}`;
+              }
             }
 
             // subject — the form requires the "LinkIT - Infra - " prefix. The
@@ -406,11 +636,13 @@ export function registerTicketingTools(server: McpServer, ctx: AppContext): void
             await selectByLabelOrValue(
               page,
               'select[name="classification"]',
-              CLASSIFICATION[input.classification],
+              CLASSIFICATION[classification],
             );
-            applied.classification = input.classification;
-            await page.fill('textarea[name="request_detail"]', input.requestDetail);
-            applied.requestDetail = input.requestDetail.slice(0, 80) + "…";
+            applied.classification = classification;
+            if (input.classification == null) applied.classificationDefaulted = true;
+            const effectiveDetail = input.requestDetail + approvalNote;
+            await page.fill('textarea[name="request_detail"]', effectiveDetail);
+            applied.requestDetail = effectiveDetail.slice(0, 80) + "…";
 
             // files — at least one attachment is required by the form. If the
             // caller provided file paths, upload them. Otherwise auto-generate a
@@ -423,7 +655,7 @@ export function registerTicketingTools(server: McpServer, ctx: AppContext): void
               await fileInput.setInputFiles(input.files);
               applied.files = input.files;
             } else {
-              const pdfText = input.attachmentText?.trim() || input.requestDetail;
+              const pdfText = (input.attachmentText?.trim() || input.requestDetail) + approvalNote;
               const pdf = makeTextPdf(pdfText, fullSubject);
               // Write to a real, stable path (not just an in-memory buffer) so
               // the file can be inspected or reused by a manual submit_form call.
@@ -467,6 +699,7 @@ export function registerTicketingTools(server: McpServer, ctx: AppContext): void
                 validationPassed: dialogAppeared,
                 wouldCreate: dialogAppeared,
                 applied,
+                ...(approvalSummary ? { approval: approvalSummary } : {}),
                 errors: msgs.errors,
                 note: dialogAppeared
                   ? "Validation PASSED (confirmation dialog reached, then cancelled). No ticket created. Re-run with dryRun:false to submit."
@@ -506,6 +739,7 @@ export function registerTicketingTools(server: McpServer, ctx: AppContext): void
               urlBefore,
               finalUrl,
               applied,
+              ...(approvalSummary ? { approval: approvalSummary } : {}),
               errors: messages.errors,
               notices: Array.from(new Set(messages.notices)),
               ...(confirmed
@@ -521,7 +755,11 @@ export function registerTicketingTools(server: McpServer, ctx: AppContext): void
                   }),
             };
           }),
-        { retries: ctx.cfg.maxRetries, label: "create_infra_ticket" },
+        {
+          retries: ctx.cfg.maxRetries,
+          label: "create_infra_ticket",
+          shouldRetry: (e) => !isDeterministicInputError(e),
+        },
       );
 
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };

@@ -15,6 +15,17 @@ loadDotenv();
 const DEFAULT_SESSION_PATH = join(homedir(), ".linkit360", "session.json");
 
 /**
+ * A boolean env var: any value other than a case-insensitive "false"/"0"/"no"
+ * is treated as true. Used for the seamlessness switches that default ON.
+ */
+function boolFromEnv(defaultValue: "true" | "false") {
+  return z
+    .string()
+    .default(defaultValue)
+    .transform((v) => !["false", "0", "no", "off"].includes(v.trim().toLowerCase()));
+}
+
+/**
  * Parses and validates all environment configuration once at startup.
  * Throws a readable error if required values are missing.
  */
@@ -41,6 +52,25 @@ const EnvSchema = z.object({
   LINKIT_MAX_RETRIES: z.coerce.number().int().min(0).default(2),
   LINKIT_LOCALE: z.string().default("en-US"),
 
+  // Seamlessness switches (all default ON). They make the server self-heal so
+  // the user never has to open a terminal or restart the host app.
+  //  - AUTO_LOGIN: when the session expires mid-task, transparently open a real
+  //    browser window to re-login instead of erroring out.
+  //  - AUTO_INSTALL_BROWSER: if Chromium is missing, install it in a detached
+  //    background process (never inside the host, never blocking) and ask the
+  //    caller to retry shortly.
+  //  - AUTO_UPDATE: on startup, pull the newest code from GitHub in the
+  //    background so updates reach every user with no manual steps.
+  LINKIT_AUTO_LOGIN: boolFromEnv("true"),
+  LINKIT_AUTO_INSTALL_BROWSER: boolFromEnv("true"),
+  LINKIT_AUTO_UPDATE: boolFromEnv("true"),
+
+  // Default ticket priority. P3 is the safe, no-approval-needed default; only
+  // P0/P1/P2 trigger the approval workflow.
+  LINKIT_DEFAULT_CLASSIFICATION: z
+    .enum(["P0", "P1", "P2", "P3", "P4"])
+    .default("P3"),
+
   LINKIT_LOG_LEVEL: z
     .enum(["debug", "info", "warn", "error"])
     .default("info"),
@@ -64,6 +94,10 @@ export interface AppConfig {
   timeoutMs: number;
   maxRetries: number;
   locale: string;
+  autoLogin: boolean;
+  autoInstallBrowser: boolean;
+  autoUpdate: boolean;
+  defaultClassification: "P0" | "P1" | "P2" | "P3" | "P4";
   logLevel: "debug" | "info" | "warn" | "error";
 }
 
@@ -101,6 +135,10 @@ export function loadConfig(): AppConfig {
     timeoutMs: e.LINKIT_TIMEOUT_MS,
     maxRetries: e.LINKIT_MAX_RETRIES,
     locale: e.LINKIT_LOCALE,
+    autoLogin: e.LINKIT_AUTO_LOGIN,
+    autoInstallBrowser: e.LINKIT_AUTO_INSTALL_BROWSER,
+    autoUpdate: e.LINKIT_AUTO_UPDATE,
+    defaultClassification: e.LINKIT_DEFAULT_CLASSIFICATION,
     logLevel: e.LINKIT_LOG_LEVEL,
   };
 }

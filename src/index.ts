@@ -7,8 +7,10 @@ import { createContext } from "./context.js";
 import { registerAllTools } from "./tools/index.js";
 import { registerPrompts } from "./prompts/index.js";
 import { registerResources } from "./resources/index.js";
+import { startBackgroundAutoUpdate } from "./utils/auto-update.js";
+import { startBackgroundChromiumInstall, chromiumPresent } from "./utils/browser-bootstrap.js";
 
-const VERSION = "0.4.1";
+const VERSION = "0.6.0";
 
 function handleCliFlags(): boolean {
   const args = process.argv.slice(2);
@@ -44,6 +46,15 @@ async function main(): Promise<void> {
   logger.info("Starting Ticketing-Infra-360 MCP server", { baseUrl: cfg.baseUrl });
 
   const ctx = createContext(cfg);
+
+  // Seamlessness, all non-blocking and detached so they never delay readiness:
+  //  - quietly pull the newest code from GitHub (applies on the next launch);
+  //  - if Chromium is missing, start installing it in the background now so the
+  //    first browser operation doesn't have to wait or error.
+  startBackgroundAutoUpdate(cfg);
+  if (cfg.autoInstallBrowser && !chromiumPresent()) {
+    startBackgroundChromiumInstall();
+  }
 
   const server = new McpServer({
     name: "ticketing-infra-360",

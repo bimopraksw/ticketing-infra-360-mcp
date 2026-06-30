@@ -1,6 +1,7 @@
-import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
+import { execFile, spawn } from "node:child_process";
+import { existsSync, mkdirSync, statSync, writeFileSync, openSync, closeSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { homedir, tmpdir } from "node:os";
 import { createRequire } from "node:module";
 import { chromium, type LaunchOptions } from "playwright";
 import { logger } from "../logger.js";
@@ -54,25 +55,106 @@ export function chromiumPresent(): boolean {
   }
 }
 
-const INSTALL_INSTRUCTIONS =
-  "Chromium is not installed on this machine yet.\n\n" +
-  "This MCP server does NOT install it automatically — installing Chromium must " +
-  "be done from a TERMINAL, not from inside the app (doing it inside the app " +
-  "crashes the host). Run this ONCE in a terminal, then fully quit & reopen the app:\n\n" +
-  "  npx -p ticketing-infra-360-mcp ticketing-infra-360-login\n\n" +
-  "(That command installs Chromium AND logs you in. Alternatively, just install " +
-  "the browser with:  npx playwright install chromium )";
+/** Marker file written while a background Chromium install is running. */
+function installLockPath(): string {
+  return join(tmpdir(), "ticketing-infra-360", "chromium-install.lock");
+}
+
+/** True when a background install kicked off recently and may still be running. */
+export function chromiumInstallInProgress(): boolean {
+  try {
+    const p = installLockPath();
+    if (!existsSync(p)) return false;
+    // A lock older than 20 min is stale (install died/finished) — ignore it so
+    // we can retry rather than wait forever.
+    return Date.now() - statSync(p).mtimeMs < 20 * 60_000;
+  } catch {
+    return false;
+  }
+}
 
 /**
- * Guard used by the MCP server before launching a browser. It NEVER installs
- * anything — it only checks whether Chromium is present and, if not, throws a
- * clear message telling the user to install it from a terminal. This is
- * deliberate: spawning the Playwright installer from inside an Electron host
- * (Claude Desktop) crashes it.
+ * Kicks off a Chromium install in a FULLY DETACHED background process and
+ * returns immediately. Detaching (own process group, stdio ignored, unref'd)
+ * is what makes this safe to call from inside an Electron host such as Claude
+ * Desktop: the installer is decoupled from the host's lifecycle, so it can't
+ * take the app down — unlike a blocking in-process install. Best-effort: any
+ * failure is swallowed (the next retry surfaces it via requireChromium()).
+ */
+/** True when the user opted out of automatic Chromium install. Trims to match config.ts. */
+export function autoInstallDisabled(): boolean {
+  const v = process.env.LINKIT_AUTO_INSTALL_BROWSER;
+  return !!v && ["false", "0", "no", "off"].includes(v.trim().toLowerCase());
+}
+
+export function startBackgroundChromiumInstall(): void {
+  // Respect the opt-out switch and don't stack up duplicate installers.
+  if (autoInstallDisabled()) return;
+  if (chromiumPresent() || chromiumInstallInProgress()) return;
+  try {
+    const cli = join(dirname(require.resolve("playwright/package.json")), "cli.js");
+    if (!existsSync(cli)) return;
+    const lock = installLockPath();
+    mkdirSync(dirname(lock), { recursive: true });
+    // Touch the lock so concurrent servers don't each start an installer.
+    writeFileSync(lock, String(Date.now()));
+    const logPath = join(homedir(), ".linkit360", "chromium-install.log");
+    mkdirSync(dirname(logPath), { recursive: true });
+    const out = openSync(logPath, "a");
+    logger.info("Installing Chromium in the background (~150MB); no restart needed", { logPath });
+    const child = spawn(process.execPath, [cli, "install", "chromium"], {
+      // ELECTRON_RUN_AS_NODE=1 makes the host's Electron binary behave as plain
+      // node for the child; detached + ignored stdio severs the host link.
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+      detached: true,
+      stdio: ["ignore", out, out],
+    });
+    // An async spawn failure must not become an uncaughtException (could crash
+    // the host). Clear the lock on both failure and exit so we don't get stuck.
+    child.on("error", (err) => {
+      logger.warn("Chromium install failed to start", err instanceof Error ? err.message : err);
+      try { rmSync(lock, { force: true }); } catch { /* ignore */ }
+    });
+    child.on("exit", () => {
+      try { rmSync(lock, { force: true }); } catch { /* ignore */ }
+    });
+    child.unref();
+    // Close the parent's copy of the log fd; the child kept its own.
+    try { closeSync(out); } catch { /* ignore */ }
+  } catch (e) {
+    logger.warn("Could not start background Chromium install", e instanceof Error ? e.message : e);
+  }
+}
+
+/**
+ * Guard used by the MCP server before launching a browser. If Chromium is
+ * missing it (a) kicks off a detached background install and (b) throws a
+ * SOFT, retryable message. It never tells the user to open a terminal or quit
+ * and reopen the app — the install happens on its own and the next attempt
+ * just works.
  */
 export function requireChromium(): void {
   if (chromiumPresent()) return;
-  throw new Error(INSTALL_INSTRUCTIONS);
+  // Opted out of auto-install: give an actual recovery path (this is the one
+  // case where pointing at a terminal command is correct).
+  if (autoInstallDisabled()) {
+    throw new Error(
+      "Chromium isn't installed and automatic install is disabled " +
+        "(LINKIT_AUTO_INSTALL_BROWSER=false). Install it once with " +
+        "`npx playwright install chromium`, or remove that setting to let it " +
+        "install automatically.",
+    );
+  }
+  startBackgroundChromiumInstall();
+  const inProgress = chromiumInstallInProgress();
+  throw new Error(
+    inProgress
+      ? "Chromium is still installing in the background (~150MB, one-time). " +
+          "No action needed — just try the same request again in a minute. " +
+          "You do NOT need to restart anything."
+      : "Chromium isn't available yet and the automatic install couldn't start. " +
+          "It will retry automatically; try again shortly. No restart needed.",
+  );
 }
 
 /**

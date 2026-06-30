@@ -1,11 +1,12 @@
 {
   "name": "ticketing-infra-360-mcp",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "MCP server for LinkIT360 Ticketing-Infra (create & list infra tickets via browser automation).",
   "type": "module",
   "bin": {
     "ticketing-infra-360-mcp": "dist/index.js",
-    "ticketing-infra-360-login": "dist/cli/login.js"
+    "ticketing-infra-360-login": "dist/cli/login.js",
+    "ticketing-infra-360-update": "dist/cli/self-update.js"
   },
   "main": "dist/index.js",
   "files": [
@@ -21,6 +22,7 @@
     "start": "node dist/index.js",
     "login": "node dist/cli/login.js",
     "login:dev": "tsx src/cli/login.ts",
+    "update:self": "node dist/cli/self-update.js --force",
     "dev": "tsx src/index.ts",
     "inspector": "npx @modelcontextprotocol/inspector node dist/index.js",
     "postinstall": "playwright install chromium",

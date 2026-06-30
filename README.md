@@ -83,7 +83,9 @@ tests/
 
 ### Reliability features
 - **Persistent session** — `storageState` saved to `~/.linkit360/`; log in once, reuse.
-- **Auto re-login** — every operation calls `ensureAuthenticated()`; stale sessions transparently re-auth.
+- **Seamless re-login** — when a session expires mid-task, the server automatically opens a real browser window so you just solve the captcha and continue. No terminal, no app restart (`LINKIT_AUTO_LOGIN`, default on).
+- **Self-installing browser** — if Chromium is missing it installs in the background; you just retry the request a minute later (`LINKIT_AUTO_INSTALL_BROWSER`, default on).
+- **Automatic updates** — on startup the server quietly pulls the latest code from GitHub and rebuilds; the update applies on the next launch, with no manual `git pull`/`build` and no restart prompt (`LINKIT_AUTO_UPDATE`, default on).
 - **Retry with backoff** — transient navigation/network errors retried (`LINKIT_MAX_RETRIES`).
 - **Timeouts** — per-navigation timeout (`LINKIT_TIMEOUT_MS`).
 - **Selector auto-detection** — login fields detected across common Laravel conventions, overridable via env.
@@ -272,7 +274,7 @@ same `env`. Restart the extension host afterwards.
 | `Invalid environment configuration` | Missing `.env` values. Copy `.env.example` → `.env`, fill `LINKIT_*`. |
 | Login fails, "still on login page" | Wrong credentials, or non-standard form. Set `LINKIT_LOGIN_*_SELECTOR` from `detect-login.mjs` output; check the server message in the error. |
 | Could not locate email/password field | Login markup differs. Run `node tests/detect-login.mjs`, then set the `LINKIT_LOGIN_*_SELECTOR` env vars. |
-| Session keeps expiring | Server enforces short sessions. Operations auto re-login; if needed delete `~/.linkit360/session.json` and re-run `login`. |
+| Session keeps expiring | Normal — the server auto-opens a login window when needed; just solve the captcha in it. To force a fresh login, delete `~/.linkit360/session.json`. Set `LINKIT_AUTO_LOGIN=false` to disable the auto-window. |
 | Timeouts | Increase `LINKIT_TIMEOUT_MS`; raise `LINKIT_MAX_RETRIES`. Set `LINKIT_HEADLESS=false` to watch the browser. |
 | Rate limiting / 429 | Use the persistent session (default) to minimize logins; add delays between bulk writes. |
 | `submit_form` reports `success:false` | Read the returned `errors[]` (server validation). Re-run `inspect_form` to confirm field names; required fields may be missing. |

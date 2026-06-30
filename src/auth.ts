@@ -36,6 +36,13 @@ const SUBMIT_CANDIDATES = [
 ];
 
 export class AuthManager {
+  /**
+   * Single-flight guard for re-authentication. When several tool calls discover
+   * an expired session at once, they must NOT each pop open their own browser
+   * window — they all await this one shared login promise instead.
+   */
+  private reauthInFlight: Promise<void> | null = null;
+
   constructor(
     private readonly cfg: AppConfig,
     private readonly browser: BrowserManager,
@@ -152,13 +159,16 @@ export class AuthManager {
         return { success: true, finalUrl: page.url() };
       }
 
-      // reCAPTCHA cannot be solved by automation. Direct the user to the
-      // interactive login CLI, which establishes a reusable session.
+      // reCAPTCHA cannot be solved by automation. Instead of failing, ask the
+      // caller to use the interactive (headed) login — which the `login` tool
+      // and seamless auto-login both do — so the user solves the captcha in a
+      // real window. No terminal and no app restart needed.
       if (await this.hasCaptcha(page)) {
         throw new Error(
-          "Login page is protected by reCAPTCHA, which cannot be solved automatically. " +
-            "Run `npm run login` once to log in manually in a visible browser; the " +
-            "session is saved and reused automatically. Re-run it whenever the session expires.",
+          "The login page uses reCAPTCHA, which can't be solved automatically. " +
+            "Use the `login` tool (it opens a real browser window with your " +
+            "credentials pre-filled — just solve the captcha and click Login). " +
+            "This also happens automatically when a session expires.",
         );
       }
 
@@ -235,12 +245,50 @@ export class AuthManager {
   /**
    * Ensures we are authenticated before an operation. If a stored session is
    * stale it transparently re-logs in.
+   *
+   * Seamless mode (default): instead of failing with "run npm run login in a
+   * terminal", we open a real browser window so the user can solve the captcha
+   * right where they are, then continue the original operation automatically.
+   * Concurrent callers share a single login (no duplicate windows).
    */
   async ensureAuthenticated(): Promise<void> {
-    const ok = await this.isAuthenticated();
-    if (!ok) {
-      logger.info("Session expired or absent; re-authenticating");
-      await this.login(true);
+    if (await this.isAuthenticated()) return;
+
+    // If a re-login is already running, JOIN it and trust its result — never
+    // start our own (that would open a second browser window). This is the whole
+    // point of the single-flight guard: contended callers must not each launch
+    // interactiveLogin().
+    if (this.reauthInFlight) {
+      await this.reauthInFlight.catch(() => undefined);
+      if (await this.isAuthenticated()) return;
+      throw new Error(
+        "Login was required but did not complete. Use the `login` tool to finish " +
+          "signing in (solve the captcha in the window that appears), then retry.",
+      );
+    }
+
+    logger.info("Session expired or absent; re-authenticating", {
+      autoLogin: this.cfg.autoLogin,
+    });
+
+    const p = (async () => {
+      if (this.cfg.autoLogin) {
+        // Open the visible browser automatically — the user just solves the
+        // captcha in the window that appears; no terminal, no app restart.
+        await this.interactiveLogin();
+      } else {
+        // Opt-out path: try the headless form login (works only on captcha-free
+        // sites; otherwise it throws a clear message).
+        await this.login(true);
+      }
+    })();
+    this.reauthInFlight = p;
+
+    try {
+      await p;
+    } finally {
+      // Don't clobber a newer login that may have replaced ours.
+      if (this.reauthInFlight === p) this.reauthInFlight = null;
     }
   }
 

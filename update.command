@@ -19,7 +19,11 @@ npm run build
 
 echo ""
 echo "================================================"
-echo "  Done! Please QUIT and REOPEN Claude Desktop."
+echo "  Done! You're on the latest version."
+echo ""
+echo "  No need to do anything else. From now on this"
+echo "  updates itself automatically in the background,"
+echo "  so you normally won't need to run this again."
 echo "================================================"
 echo ""
 read -p "Press Enter to close this window..."

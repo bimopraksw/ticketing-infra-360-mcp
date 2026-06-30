@@ -2,7 +2,7 @@
   "manifest_version": "0.2",
   "name": "ticketing-infra-360-mcp",
   "display_name": "Ticketing-Infra-360 (LinkIT360)",
-  "version": "0.4.1",
+  "version": "0.6.0",
   "description": "Create and list LinkIT360 infra tickets from your AI agent.",
   "long_description": "MCP server for LinkIT360 Ticketing-Infra. Create infra tickets and list/search tickets (newest-first, real pagination) via browser automation. Enter your LinkIT360 email and password below; the first time, ask the agent to \"log in to LinkIT360\" to solve the one-time reCAPTCHA in a real browser. The login session is saved and reused.",
   "author": {

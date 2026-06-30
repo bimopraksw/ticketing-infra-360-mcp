@@ -230,9 +230,18 @@ Available tools: `login`, `check_session`, `logout`, `navigate`, `inspect_form`,
 
 ## Updating
 
-- **npx:** bump the version your config requests (or clear the npx cache:
-  `npx clear-npx-cache`) — next launch fetches the new version.
-- **source:** `git pull && npm install && npm run build`, then restart your agent.
+**Automatic (source installs, default).** Once you're on v0.6.0+, the server keeps
+itself up to date: on startup it quietly pulls the latest code from GitHub and
+rebuilds in the background. The update applies the next time the app starts. You
+don't run anything and you're never asked to restart. (Disable with
+`LINKIT_AUTO_UPDATE=false`. It only acts on a clean git checkout — local edits are
+left untouched.)
+
+Manual options if you ever want to force it:
+- **source:** double-click `update.command` (macOS) / `update.bat` (Windows), or run
+  `npm run update:self`.
+- **npx:** bump the version your config requests (or `npx clear-npx-cache`) — next
+  launch fetches the new version.
 
 ---
 
@@ -243,8 +252,8 @@ Available tools: `login`, `check_session`, `logout`, `navigate`, `inspect_form`,
 | Agent shows no LinkIT360 tools | Wrong path/command, or client not restarted. Verify absolute path to `dist/index.js`, then fully restart the client. |
 | "Invalid environment configuration" | Missing `LINKIT_EMAIL`/`LINKIT_PASSWORD`/`LINKIT_BASE_URL` in the `env` block. |
 | Login window never appears | Headless/remote machine (no display). Run on a desktop, or do `npm run login` on a machine with a display and copy the session file over. |
-| "Login page is protected by reCAPTCHA…" on a tool call | Session expired — say "log in to LinkIT360" again. |
-| Chromium not found | `npx playwright install chromium` (or reinstall). |
+| "Login page is protected by reCAPTCHA…" on a tool call | Session expired. By default a login window now opens on its own — just solve the captcha in it. If it doesn't, say "log in to LinkIT360". |
+| Chromium not found | It installs itself in the background on first use — retry the request in a minute (no restart needed). To install manually: `npx playwright install chromium`. |
 | Session not picked up after login | The default `~/.linkit360/session.json` is shared automatically. If you overrode `LINKIT_SESSION_PATH`, use the **same absolute path** in every config and make sure it's writable. |
 
 ---

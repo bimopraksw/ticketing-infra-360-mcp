@@ -70,7 +70,29 @@ export class BrowserManager {
       this.launching = null;
       return;
     }
-    if (this.context) await this.context.close().catch(() => undefined);
+    if (this.context) {
+      // Refresh cookies IN PLACE rather than closing+recreating the context.
+      // Closing the shared context would yank it out from under any page a
+      // concurrent tool call is mid-operation on ("Target closed"). Re-applying
+      // the freshly saved cookies is enough for the Laravel session auth.
+      try {
+        const raw = await readFile(this.cfg.sessionPath, "utf8");
+        const state = JSON.parse(raw) as Awaited<ReturnType<BrowserContext["storageState"]>>;
+        if (Array.isArray(state.cookies) && state.cookies.length > 0) {
+          await this.context.clearCookies().catch(() => undefined);
+          await this.context.addCookies(state.cookies);
+          logger.info("Session cookies refreshed into the running context");
+          return;
+        }
+      } catch (e) {
+        logger.warn(
+          "In-place session refresh failed; recreating context",
+          e instanceof Error ? e.message : e,
+        );
+      }
+      // Fallback only if the in-place refresh wasn't possible.
+      await this.context.close().catch(() => undefined);
+    }
     this.context = await this.newContextFromSession();
     logger.info("Session reloaded into running browser");
   }
