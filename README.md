@@ -239,13 +239,18 @@ submit_form { ...same..., "dryRun": false, "expectSuccessUrl": "/reports" }
 ## Client integration
 
 ### Claude Desktop
-`~/Library/Application Support/Claude/claude_desktop_config.json`:
+Settings → Developer → **Edit Config**
+(`~/Library/Application Support/Claude/claude_desktop_config.json`).
+
+**Recommended: `npx` (stays up to date).** Each launch resolves the latest
+version published to npm, so new releases reach you automatically. Nothing to
+build, nothing to reinstall:
 ```json
 {
   "mcpServers": {
     "ticketing-infra-360": {
-      "command": "node",
-      "args": ["/ABSOLUTE/PATH/TO/ticketing-infra-360-mcp/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "ticketing-infra-360-mcp"],
       "env": {
         "LINKIT_BASE_URL": "https://report.linkit360.com",
         "LINKIT_EMAIL": "you@example.com",
@@ -255,6 +260,15 @@ submit_form { ...same..., "dryRun": false, "expectSuccessUrl": "/reports" }
   }
 }
 ```
+
+**From source (advanced).** Point `command`/`args` at your built `dist/index.js`
+instead: `"command": "node"`, `"args": ["/ABSOLUTE/PATH/TO/ticketing-infra-360-mcp/dist/index.js"]`.
+A git checkout also self-updates on startup.
+
+> Using the old Claude Desktop **Extension (`.mcpb`)** bundle? It does **not**
+> auto-update. It stays frozen on the version you installed, so an agent that
+> only shows read-only tools (missing `create_infra_ticket`) is simply on a
+> stale bundle. Switch to the `npx` config above to get current and stay current.
 
 ### Cursor
 `.cursor/mcp.json` (project) or global Cursor settings — same shape as above.

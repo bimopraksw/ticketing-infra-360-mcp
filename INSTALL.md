@@ -6,7 +6,7 @@ running inside your AI agent
 
 There are **two ways to install**:
 
-- **Option A — `npx` (recommended once published):** zero clone, zero build.
+- **Option A — `npx` (recommended):** zero clone, zero build; stays up to date on each launch.
 - **Option B — from source:** clone the repo and build it yourself.
 
 Pick one, then jump to [Register it with your agent](#3-register-it-with-your-agent).
@@ -89,9 +89,10 @@ The rest of this guide is the full reference (other clients, from-source, etc.).
 
 ## Option A — Install with `npx` (no clone, no build)
 
-Once the package is published to your npm registry, **nothing to install manually** —
-your agent config (below) runs it via `npx`, which fetches it and downloads
-Chromium automatically on first run.
+**Nothing to install manually:** your agent config (below) runs it via `npx`,
+which fetches the package and downloads Chromium automatically on first run.
+Because the config uses the bare package name, each launch resolves the latest
+published version, so you stay current with no manual steps.
 
 To pre-warm it / verify:
 ```bash
@@ -99,10 +100,10 @@ npx -y ticketing-infra-360-mcp --help   # downloads the package + Chromium, then
 ```
 (Ctrl-C to stop — it's a stdio server, it just waits for a client.)
 
-> Not published yet? Two no-registry alternatives:
+> Private registry, or not published there yet? Two no-registry alternatives:
 > - **Tarball:** maintainer runs `npm pack` → share the `.tgz` → users run
 >   `npx ./ticketing-infra-360-mcp-<version>.tgz`.
-> - **Git:** `npx github:your-org/ticketing-infra-360-mcp` (installs + builds from the repo).
+> - **Git:** `npx github:bimopraksw/ticketing-infra-360-mcp` (installs + builds from the repo).
 
 ---
 
@@ -230,18 +231,24 @@ Available tools: `login`, `check_session`, `logout`, `navigate`, `inspect_form`,
 
 ## Updating
 
-**Automatic (source installs, default).** Once you're on v0.6.0+, the server keeps
-itself up to date: on startup it quietly pulls the latest code from GitHub and
-rebuilds in the background. The update applies the next time the app starts. You
-don't run anything and you're never asked to restart. (Disable with
-`LINKIT_AUTO_UPDATE=false`. It only acts on a clean git checkout — local edits are
-left untouched.)
+**`npx` installs (recommended channel).** Because the config runs the bare
+package name, each launch resolves the latest version published to npm, so once
+a new release is published, you get it on your next launch. No terminal, no
+rebuild. To force it right away: `npx clear-npx-cache`, or pin a version such as
+`ticketing-infra-360-mcp@0.6.0`.
 
-Manual options if you ever want to force it:
-- **source:** double-click `update.command` (macOS) / `update.bat` (Windows), or run
-  `npm run update:self`.
-- **npx:** bump the version your config requests (or `npx clear-npx-cache`) — next
-  launch fetches the new version.
+**Source (git clone) installs.** The server self-heals: on startup it quietly
+pulls the latest code from GitHub and rebuilds in the background, applying on the
+next launch. Force it with `update.command` (macOS) / `update.bat` (Windows) or
+`npm run update:self`. (Disable with `LINKIT_AUTO_UPDATE=false`. It only acts on a
+clean git checkout; local edits are left untouched.)
+
+**Claude Desktop Extension (`.mcpb`): does NOT auto-update.** A `.mcpb` install
+is a frozen bundle: the built-in auto-updater deliberately skips it (it isn't a
+git checkout), so it stays on whatever version you installed. If your agent only
+shows read-only tools and is missing `create_infra_ticket`, you're on a stale
+`.mcpb`. Switch to the `npx` config (Option A / Claude Desktop above) to get
+current and stay current.
 
 ---
 
