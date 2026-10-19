@@ -52,8 +52,8 @@ interface DtMeta {
   ajaxUrl: string | null;
   csrf: string | null;
   headers: string[];
-  /** Per-column { data, searchable, orderable } in column order. */
-  columns: { data: string; searchable: boolean; orderable: boolean }[];
+  /** Per-column { data, searchable, orderable, visible } in column order. */
+  columns: { data: string; searchable: boolean; orderable: boolean; visible: boolean }[];
 }
 
 /** Read the DataTables configuration straight off the live page (jQuery DataTable). */
@@ -99,6 +99,13 @@ async function readDtMeta(page: Page): Promise<DtMeta> {
           data: (c.mData as string) ?? (c.sName as string) ?? "",
           searchable: (c.bSearchable as boolean) ?? true,
           orderable: (c.bSortable as boolean) ?? true,
+          // DataTables keeps HIDDEN columns (visible:false) in aoColumns too —
+          // e.g. the infra table defines company/project/country/operator/service
+          // as data columns for filtering, but only some are rendered as <th>.
+          // Zipping headers 1:1 against the FULL aoColumns list (as this used to
+          // do) silently shifts every header after the first hidden column onto
+          // the wrong data, e.g. "Ticket Number" reading the real category value.
+          visible: (c.bVisible as boolean) ?? true,
         }));
       }
     } catch {
@@ -177,13 +184,17 @@ async function fetchServerSide(
   }
   if (!Array.isArray(json.data)) return null;
 
-  // Map each row object to header->value using the column `data` order, so the
-  // output matches what the table visually shows (HTML stripped).
-  const colData = meta.columns.map((c) => c.data);
+  // Map each row object to header->value using only the VISIBLE columns' data
+  // keys, in order, zipped against `meta.headers` (which only lists the <th>s
+  // actually rendered). Hidden columns (e.g. company/project/country/operator/
+  // service used by Advanced Filters) are skipped here — they were never in
+  // `headers` and would otherwise shift every later header onto the wrong value.
+  const visibleColData = meta.columns.filter((c) => c.visible).map((c) => c.data);
+  const lengthMismatch = visibleColData.length !== meta.headers.length;
   const rows = json.data.map((r) => {
     const obj: Record<string, string> = {};
     meta.headers.forEach((h, i) => {
-      const key = colData[i];
+      const key = visibleColData[i];
       obj[h || `col${i}`] = stripHtml(key ? r[key] : "");
     });
     return obj;
@@ -200,8 +211,11 @@ async function fetchServerSide(
     page: pageIdx,
     pageSize,
     totalPages,
-    note:
-      pageIdx < totalPages
+    note: lengthMismatch
+      ? `Column count mismatch (table defines ${visibleColData.length} visible data columns ` +
+        `but rendered ${meta.headers.length} header cells) — values may be misaligned; treat ` +
+        `with caution.`
+      : pageIdx < totalPages
         ? `Page ${pageIdx}/${totalPages} (${recordsFiltered} match). Pass page:${pageIdx + 1} for older rows, or raise maxRows.`
         : undefined,
   };

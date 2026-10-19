@@ -101,7 +101,10 @@ tests/
 | Tool | Purpose |
 |---|---|
 | `create_infra_ticket` | **Create an Infra ticket** (`POST /ticketing-infra/request`). Fully typed: `subject`, `category`, `company`, `serviceType` (service/project), `classification` (P0–P4), `requestDetail`, `sentTo[]`, `ccEmail[]`, `country`, `project`, `operator`, `service`, `files[]`, `attachmentText`. See notes below. |
-| `list_tickets` | **List/search tickets** for a module (`infra`/`creative`/`media`/`legal`). Optional global `search`; returns rows keyed by column header. |
+| `list_tickets` | **List/search tickets** for a module (`infra`/`creative`/`media`/`legal`). Optional global `search`, `filters`, `sortBy`/`sortOrder`, true pagination. Returns rows keyed by column header — correctly aligned even though the live table defines hidden filter-only columns (company/project/country/operator/service) alongside the visible ones. |
+| `get_ticket_detail` | **Read a ticket** — replies from the infra team + the full Activity Ticket log (who/what/when), by `ticketId` or `path`. |
+| `reply_to_ticket` | **Reply to a ticket.** Detects whether the ticket is still Pending (uses the Infra Note form) or already Received (uses the Reply form) and posts `message` through the right one. `action:'reject'` rejects a still-Pending ticket (requires a file). Verifies success against the ticket's own Activity log, not just the redirect. `dryRun` supported. |
+| `close_ticket` | **Close a ticket.** Clicks the same Closed button as the UI, confirms the dialog, and verifies a "Close Ticket" activity was logged. `dryRun` supported. |
 | `list_services` | **List/search services** from `/service/list`. Optional global `search`. |
 | `get_field_options` | **Propose choices to the user.** Returns the available options (value+label) for one or more `<select>` fields on any page (with optional substring filter). Use when a required dropdown isn't specified — list options, let the user pick. Essential for the option-heavy service form. |
 
