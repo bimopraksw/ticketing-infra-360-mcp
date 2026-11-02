@@ -214,6 +214,98 @@ async function scrapeTicketDetail(page: Page): Promise<TicketDetailScrape> {
 }
 
 /**
+ * Finds a ticket's row in its module's list (status, ticket number, created
+ * by/at, ...), which the detail page itself doesn't show.
+ */
+async function findTicketRow(
+  page: Page,
+  baseUrl: string,
+  mod: Module,
+  search: string,
+  match: (row: Record<string, string>) => boolean,
+): Promise<Record<string, string> | undefined> {
+  // The table loads by XHR, which extractDataTable waits for; networkidle would
+  // also wait out the site's notification polling (seconds per page).
+  await page.goto(resolveUrl(baseUrl, `/ticketing-${mod}/list`), { waitUntil: "domcontentloaded" });
+  const table = await extractDataTable(page, { search, maxRows: 50 });
+  const row = table.rows.find(match);
+  if (!row) return undefined;
+  const { Action: _action, No: _no, ...rest } = row;
+  return rest;
+}
+
+/** Lookup lists the detail modal ships for its dropdowns, not ticket data. */
+const TICKET_JSON_NOISE = new Set(["categories", "classifications", "users", "geo", "is_infra"]);
+
+/**
+ * Reads a ticket from the JSON endpoint behind the list page's detail modal.
+ * It covers every module (the older /detail/{id} page 500s for creative,
+ * media and legal) and carries status, created/closed by/at, request body,
+ * recipients, attachments and replies. Infra answers under `data`, the other
+ * modules under `ticket`.
+ */
+async function fetchTicketJson(
+  ctx: AppContext,
+  mod: Module,
+  id: string,
+): Promise<Record<string, unknown>> {
+  const api = await ctx.browser.apiRequest();
+  const resp = await api.get(resolveUrl(ctx.cfg.baseUrl, `/ticketing-${mod}/modal-detail/${id}`), {
+    headers: { "X-Requested-With": "XMLHttpRequest", Accept: "application/json" },
+  });
+  let body: { success?: boolean; data?: unknown; ticket?: unknown } | null = null;
+  try {
+    body = await resp.json();
+  } catch {
+    /* not JSON: handled below */
+  }
+  const raw = body?.data ?? body?.ticket;
+  if (!resp.ok() || !body?.success || !raw || typeof raw !== "object") {
+    throw new Error(`Ticket id ${id} was not found in the ${mod} module (HTTP ${resp.status()}).`);
+  }
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (TICKET_JSON_NOISE.has(k) || (k !== "id" && k.endsWith("_id"))) continue;
+    if (v === null || v === "" || v === "null" || (Array.isArray(v) && v.length === 0)) continue;
+    if (typeof v === "string" && /^\s*[[{]/.test(v)) {
+      try {
+        const parsed = JSON.parse(v);
+        if (!(Array.isArray(parsed) && parsed.length === 0)) out[k] = parsed;
+        continue;
+      } catch {
+        /* keep the raw string */
+      }
+    }
+    if (v && typeof v === "object" && !Array.isArray(v) && typeof (v as { name?: unknown }).name === "string") {
+      out[k] = (v as { name: string }).name; // relation objects like category / classification
+      continue;
+    }
+    out[k] = v;
+  }
+  return out;
+}
+
+/**
+ * The site shows times in WIB, but the list and JSON give some of them as UTC
+ * ISO strings ("...Z"). Converts those, and leaves already-local ones (like
+ * closed_at "2026-11-02 08:11:52") untouched.
+ */
+function toSiteTime(value: string | undefined): string | null {
+  if (!value) return null;
+  if (!/^\d{4}-\d\d-\d\dT[\d:.]+Z$/.test(value)) return value;
+  return new Date(value).toLocaleString("sv-SE", { timeZone: "Asia/Jakarta" });
+}
+
+function localizeTimes(value: unknown): unknown {
+  if (typeof value === "string") return toSiteTime(value);
+  if (Array.isArray(value)) return value.map(localizeTimes);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, localizeTimes(v)]));
+  }
+  return value;
+}
+
+/**
  * Static country → company fallback, captured from the live
  * /ticketing-infra/company-operator data (e.g. LinkIT.SEA covers Cambodia,
  * Laos, Myanmar, Philippines, Vietnam and shares Thailand with LinkIT.Asia).
@@ -910,69 +1002,109 @@ export function registerTicketingTools(server: McpServer, ctx: AppContext): void
   );
 
   // -------------------------------------------------------------------------
-  // get_ticket_detail  — reply + activity scraper
+  // get_ticket_detail
   // -------------------------------------------------------------------------
   server.registerTool(
     "get_ticket_detail",
     {
-      title: "Get ticket detail (reply + activity)",
+      title: "Get ticket detail",
       description:
-        "Open a ticket detail page and return the full reply from the infra team " +
-        "plus the complete Activity Ticket log. Use this after `list_tickets` to read " +
-        "the answer/credentials that infra posted in reply to a ticket. " +
-        "Pass either `ticketId` (numeric, e.g. 42) or a full `path` " +
-        "(e.g. '/ticketing-infra/detail/42'). `module` defaults to 'infra'.",
+        "Read one ticket in full, in any module (infra, creative, media, legal): ticket " +
+        "number, subject, status, who created it and when, who received/closed it and when, " +
+        "the request body, company/country/project, recipients and CC, attachments, every " +
+        "reply, and (infra) the complete Activity Ticket log. Identify the ticket by " +
+        "`ticketNumber` (e.g. 'INFRA000002829'), `ticketId` (the `id` of a `list_tickets` " +
+        "or `my_tickets` row), or a detail `path`. Times are WIB, as on the site.",
       inputSchema: {
+        ticketNumber: z
+          .string()
+          .optional()
+          .describe("Ticket number as shown in the list, e.g. 'INFRA000002829' or 'CRTV000000236'."),
         ticketId: z
           .union([z.string(), z.number()])
           .optional()
-          .describe("Numeric ticket ID (e.g. 42). Use this OR `path`."),
+          .describe("Ticket id (the `id` field of a `list_tickets` row, e.g. 2829)."),
         path: z
           .string()
           .optional()
-          .describe(
-            "Full path to the ticket detail page, e.g. '/ticketing-infra/detail/42'. " +
-              "Use this OR `ticketId`.",
-          ),
+          .describe("Detail page path, e.g. '/ticketing-infra/detail/42'."),
         module: z
           .enum(MODULES)
-          .default("infra")
-          .describe("Ticketing module (default 'infra')."),
+          .optional()
+          .describe(
+            "Ticketing module. Inferred from the ticket number prefix (INFRA, CRTV, MEDIA, LR) " +
+              "or the path; otherwise 'infra'.",
+          ),
       },
     },
-    async ({ ticketId, path: inputPath, module }) => {
-      await ctx.auth.ensureAuthenticated();
-      const mod = (module ?? "infra") as Module;
-
-      if (!ticketId && !inputPath) {
-        throw new Error("Provide either `ticketId` or `path`.");
+    async ({ ticketNumber, ticketId, path: inputPath, module }) => {
+      if (!ticketNumber && ticketId === undefined && !inputPath) {
+        throw new Error("Provide `ticketNumber`, `ticketId`, or `path`.");
       }
-
-      const detailPath = inputPath ?? `/ticketing-${mod}/detail/${ticketId}`;
-      const url = resolveUrl(ctx.cfg.baseUrl, detailPath);
+      await ctx.auth.ensureAuthenticated();
+      const pathMod = inputPath?.match(/ticketing-(infra|creative|media|legal)\b/)?.[1] as Module | undefined;
+      const NUMBER_PREFIX: Array<[string, Module]> = [
+        ["INFRA", "infra"],
+        ["CRTV", "creative"],
+        ["MEDIA", "media"],
+        ["LR", "legal"],
+      ];
+      const upper = ticketNumber?.trim().toUpperCase() ?? "";
+      const prefixMod = NUMBER_PREFIX.find(([p]) => upper.startsWith(p))?.[1];
+      const mod = (module ?? pathMod ?? prefixMod ?? "infra") as Module;
 
       const result = await withRetry(
         () =>
           ctx.browser.withPage(async (page) => {
-            await page.goto(url, { waitUntil: "networkidle" });
+            let listing: Record<string, string> | undefined;
+            let id = ticketId !== undefined ? String(ticketId) : inputPath?.match(/\/(?:detail|modal-detail)\/(\d+)/)?.[1];
 
-            const data = await scrapeTicketDetail(page);
+            if (ticketNumber) {
+              const wanted = ticketNumber.trim().toUpperCase();
+              listing = await findTicketRow(page, ctx.cfg.baseUrl, mod, wanted, (r) =>
+                Object.values(r).some((v) => v.trim().toUpperCase() === wanted),
+              );
+              if (!listing?.id) {
+                throw new Error(`Ticket ${ticketNumber} was not found in the ${mod} ticket list.`);
+              }
+              id = listing.id;
+            }
+            if (!id) throw new Error(`Could not read a ticket id from path '${inputPath}'.`);
 
-            logger.info("get_ticket_detail", {
-              url: page.url(),
-              repliesFound: data.replies.length,
-              activitiesFound: data.activities.length,
-            });
+            const ticket = localizeTimes(await fetchTicketJson(ctx, mod, id)) as Record<string, unknown>;
+
+            // The JSON's activity list is empty for infra; the log lives on the detail page.
+            let activities: TicketActivity[] = [];
+            const detailUrl = resolveUrl(ctx.cfg.baseUrl, `/ticketing-${mod}/detail/${id}`);
+            if (mod === "infra") {
+              await page.goto(detailUrl, { waitUntil: "domcontentloaded" });
+              activities = (await scrapeTicketDetail(page)).activities;
+            }
+
+            if (!listing && typeof ticket.subject === "string" && ticket.subject) {
+              listing = await findTicketRow(page, ctx.cfg.baseUrl, mod, ticket.subject, (r) => r.id === id).catch(
+                () => undefined,
+              );
+            }
+
+            logger.info("get_ticket_detail", { module: mod, id, activitiesFound: activities.length });
 
             return {
-              url: page.url(),
-              title: data.title,
-              replies: data.replies,
-              activities: data.activities,
-              rawText: data.pageText,
+              module: mod,
+              ticketId: id,
+              ticketNumber: listing?.["Ticket Number"] ?? ticketNumber?.trim().toUpperCase() ?? null,
+              status: ticket.status ?? listing?.["Status"] ?? null,
+              listing: listing ?? null,
+              ticket,
+              activities,
+              url: mod === "infra" ? detailUrl : resolveUrl(ctx.cfg.baseUrl, `/ticketing-${mod}/list`),
             };
           }),
-        { retries: ctx.cfg.maxRetries, label: "get_ticket_detail" },
+        {
+          retries: ctx.cfg.maxRetries,
+          label: "get_ticket_detail",
+          shouldRetry: (e) => !(e instanceof Error && /was not found in the|Could not read a ticket id/.test(e.message)),
+        },
       );
 
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
@@ -993,7 +1125,8 @@ export function registerTicketingTools(server: McpServer, ctx: AppContext): void
         "`maxRows` is honoured as the real page size, and `page` gives true pagination. " +
         "Optional global `search` filters across columns (subject, ticket number, " +
         "company, country, status, creator email, …). Returns rows keyed by column " +
-        "header plus recordsTotal/recordsFiltered/totalPages for paging.",
+        "header plus recordsTotal/recordsFiltered/totalPages for paging. Each row's `id` " +
+        "is what `get_ticket_detail`, `reply_to_ticket` and `close_ticket` take as `ticketId`.",
       inputSchema: {
         module: z
           .enum(MODULES)
@@ -1047,7 +1180,7 @@ export function registerTicketingTools(server: McpServer, ctx: AppContext): void
       const result = await withRetry(
         () =>
           ctx.browser.withPage(async (page) => {
-            await page.goto(url, { waitUntil: "networkidle" });
+            await page.goto(url, { waitUntil: "domcontentloaded" });
             const table = await extractDataTable(page, {
               search,
               maxRows,
@@ -1059,6 +1192,110 @@ export function registerTicketingTools(server: McpServer, ctx: AppContext): void
             return { module: mod, url: page.url(), ...table };
           }),
         { retries: ctx.cfg.maxRetries, label: "list_tickets" },
+      );
+
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // my_tickets: what the signed-in user has filed, and where each one stands
+  // -------------------------------------------------------------------------
+  server.registerTool(
+    "my_tickets",
+    {
+      title: "My tickets",
+      description:
+        "List the tickets the signed-in user created (the LINKIT_EMAIL account), with each " +
+        "ticket's current status (Pending, Received, Need Review, Closed, Rejected, ...), " +
+        "newest first, plus a count per status. Use this whenever the user asks about " +
+        "'my tickets' or the status of tickets they filed. Covers all modules unless " +
+        "`module` is given. Pass `email` to look up another person's tickets instead. " +
+        "Times are WIB, as on the site. Use `get_ticket_detail` with a row's `id` for the full ticket.",
+      inputSchema: {
+        module: z
+          .enum(["all", ...MODULES])
+          .default("all")
+          .describe("Module to look in (default: all four)."),
+        status: z
+          .string()
+          .optional()
+          .describe("Only tickets whose status contains this text, e.g. 'closed', 'pending', 'received', 'need review'."),
+        email: z
+          .string()
+          .optional()
+          .describe("Creator email to look up instead of the signed-in account."),
+        limit: z
+          .number()
+          .int()
+          .positive()
+          .max(500)
+          .optional()
+          .describe("How many of the newest matches to scan per module (default 200)."),
+      },
+    },
+    async ({ module, status, email, limit }) => {
+      await ctx.auth.ensureAuthenticated();
+      const who = (email ?? ctx.cfg.email).trim().toLowerCase();
+      const mods: Module[] = !module || module === "all" ? [...MODULES] : [module as Module];
+
+      const result = await withRetry(
+        () =>
+          ctx.browser.withPage(async (page) => {
+            const tickets: Array<Record<string, string | null | undefined>> = [];
+            const notes: string[] = [];
+            for (const mod of mods) {
+              await page.goto(resolveUrl(ctx.cfg.baseUrl, `/ticketing-${mod}/list`), { waitUntil: "domcontentloaded" });
+              const table = await extractDataTable(page, { search: who, maxRows: limit ?? 200 });
+              const creatorKey = table.headers.find((h) => /created\s*by/i.test(h));
+              const createdKey = table.headers.find((h) => /created/i.test(h) && !/by/i.test(h));
+              if (!creatorKey) {
+                notes.push(`${mod}: no "Created By" column found, skipped.`);
+                continue;
+              }
+              // The search matches the email in ANY column (CC, sent to, ...); keep only own tickets.
+              for (const r of table.rows) {
+                if ((r[creatorKey] ?? "").trim().toLowerCase() !== who) continue;
+                const approval = r["Status Approval"];
+                tickets.push({
+                  module: mod,
+                  id: r.id,
+                  ticketNumber: r["Ticket Number"],
+                  subject: r["Subject Email"] ?? r["Subject"],
+                  status: r["Status"],
+                  approvalStatus: approval && approval !== "-" ? approval : undefined,
+                  classification: r["Classification"],
+                  createdAt: toSiteTime(createdKey ? r[createdKey] : undefined),
+                  responseTimeHours:
+                    r["Response Time (Hours)"] && r["Response Time (Hours)"] !== "-" ? r["Response Time (Hours)"] : undefined,
+                });
+              }
+              if ((table.recordsFiltered ?? 0) > table.rows.length) {
+                notes.push(
+                  `${mod}: scanned the newest ${table.rows.length} of ${table.recordsFiltered} matches; ` +
+                    `raise \`limit\` to include older tickets.`,
+                );
+              }
+            }
+
+            const byStatus: Record<string, number> = {};
+            for (const t of tickets) byStatus[t.status || "Unknown"] = (byStatus[t.status || "Unknown"] ?? 0) + 1;
+            const wanted = status?.trim().toLowerCase();
+            const shown = (wanted ? tickets.filter((t) => (t.status ?? "").toLowerCase().includes(wanted)) : tickets).sort(
+              (a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""),
+            );
+
+            return {
+              account: who,
+              totalCreated: tickets.length,
+              byStatus,
+              statusFilter: status ?? undefined,
+              shown: shown.length,
+              tickets: shown,
+              notes: notes.length ? notes : undefined,
+            };
+          }),
+        { retries: ctx.cfg.maxRetries, label: "my_tickets" },
       );
 
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };

@@ -47,8 +47,8 @@ to do that one-time login:
 **B. From a terminal — `npm run login`**
    Same thing, run as a command. Useful for headless setup or first install.
 
-After either, the session cookies live in `~/.linkit360/session.json` (the
-default `LINKIT_SESSION_PATH`) and are reused for all operations until they expire. When a tool detects the session has
+After either, the session cookies live in `~/.linkit360/session-<your email>.json` (the
+default `LINKIT_SESSION_PATH`, one file per account) and are reused for all operations until they expire. When a tool detects the session has
 expired, it returns a clear message telling you to log in again (it never tries
 to brute past the captcha). Both flows require a machine with a graphical
 display (to show the browser window).
@@ -102,7 +102,8 @@ tests/
 |---|---|
 | `create_infra_ticket` | **Create an Infra ticket** (`POST /ticketing-infra/request`). Fully typed: `subject`, `category`, `company`, `serviceType` (service/project), `classification` (P0–P4), `requestDetail`, `sentTo[]`, `ccEmail[]`, `country`, `project`, `operator`, `service`, `files[]`, `attachmentText`. See notes below. |
 | `list_tickets` | **List/search tickets** for a module (`infra`/`creative`/`media`/`legal`). Optional global `search`, `filters`, `sortBy`/`sortOrder`, true pagination. Returns rows keyed by column header — correctly aligned even though the live table defines hidden filter-only columns (company/project/country/operator/service) alongside the visible ones. |
-| `get_ticket_detail` | **Read a ticket** — replies from the infra team + the full Activity Ticket log (who/what/when), by `ticketId` or `path`. |
+| `get_ticket_detail` | **Read a ticket**, in any module: ticket number, subject, status, created by/at, received/closed by/at, request body, company/country/project, recipients and CC, attachments, every reply, and (infra) the full Activity Ticket log. Look it up by `ticketNumber` (e.g. `INFRA000002829`, `CRTV…`, `MEDIA…`, `LR…`), `ticketId`, or `path`. Times in WIB. |
+| `my_tickets` | **"What are my tickets?"** Every ticket the signed-in account created, across all modules, newest first, with its status (Pending, Received, Need Review, Closed, Rejected…) and a count per status. Optional `status` filter, `module`, and `email` to look up someone else. |
 | `reply_to_ticket` | **Reply to a ticket.** Detects whether the ticket is still Pending (uses the Infra Note form) or already Received (uses the Reply form) and posts `message` through the right one. `action:'reject'` rejects a still-Pending ticket (requires a file). Verifies success against the ticket's own Activity log, not just the redirect. `dryRun` supported. |
 | `close_ticket` | **Close a ticket.** Clicks the same Closed button as the UI, confirms the dialog, and verifies a "Close Ticket" activity was logged. `dryRun` supported. |
 | `list_services` | **List/search services** from `/service/list`. Optional global `search`. |
@@ -176,8 +177,8 @@ LINKIT_EMAIL=you@example.com
 LINKIT_PASSWORD=your-password
 # optional overrides — see .env.example for the full list
 LINKIT_HEADLESS=true
-# LINKIT_SESSION_PATH defaults to ~/.linkit360/session.json (absolute); override only if needed
-# LINKIT_SESSION_PATH=/Users/you/.linkit360/session.json
+# LINKIT_SESSION_PATH defaults to ~/.linkit360/session-<LINKIT_EMAIL>.json (absolute, one per account); override only if needed
+# LINKIT_SESSION_PATH=/Users/you/.linkit360/session-you@linkit360.com.json
 ```
 
 ---
@@ -291,7 +292,8 @@ same `env`. Restart the extension host afterwards.
 | `Invalid environment configuration` | Missing `.env` values. Copy `.env.example` → `.env`, fill `LINKIT_*`. |
 | Login fails, "still on login page" | Wrong credentials, or non-standard form. Set `LINKIT_LOGIN_*_SELECTOR` from `detect-login.mjs` output; check the server message in the error. |
 | Could not locate email/password field | Login markup differs. Run `node tests/detect-login.mjs`, then set the `LINKIT_LOGIN_*_SELECTOR` env vars. |
-| Session keeps expiring | Normal — the server auto-opens a login window when needed; just solve the captcha in it. To force a fresh login, delete `~/.linkit360/session.json`. Set `LINKIT_AUTO_LOGIN=false` to disable the auto-window. |
+| Session keeps expiring | Normal — the server auto-opens a login window when needed; just solve the captcha in it. To force a fresh login, delete `~/.linkit360/session-<your email>.json`. Set `LINKIT_AUTO_LOGIN=false` to disable the auto-window. |
+| Tickets created under someone else's name | Fixed in 0.7.0. Each account has its own session file, and the server checks `/profile` before acting: a session that belongs to a different account than `LINKIT_EMAIL` is discarded and you are asked to log in with the right one. Run `check_session` to see `loggedInAs` vs `configuredAccount`. |
 | Timeouts | Increase `LINKIT_TIMEOUT_MS`; raise `LINKIT_MAX_RETRIES`. Set `LINKIT_HEADLESS=false` to watch the browser. |
 | Rate limiting / 429 | Use the persistent session (default) to minimize logins; add delays between bulk writes. |
 | `submit_form` reports `success:false` | Read the returned `errors[]` (server validation). Re-run `inspect_form` to confirm field names; required fields may be missing. |

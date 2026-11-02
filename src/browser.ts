@@ -1,8 +1,15 @@
-import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
-import { existsSync } from "node:fs";
-import { mkdir, writeFile, readFile } from "node:fs/promises";
+import {
+  chromium,
+  request,
+  type APIRequestContext,
+  type Browser,
+  type BrowserContext,
+  type Page,
+} from "playwright";
+import { copyFileSync, existsSync, mkdirSync } from "node:fs";
+import { mkdir, writeFile, readFile, rename } from "node:fs/promises";
 import { dirname } from "node:path";
-import type { AppConfig } from "./config.js";
+import { LEGACY_SESSION_PATH, type AppConfig } from "./config.js";
 import { logger } from "./logger.js";
 import { requireChromium, chromiumLaunchOptions } from "./utils/browser-bootstrap.js";
 
@@ -18,7 +25,25 @@ export class BrowserManager {
   private context: BrowserContext | null = null;
   private launching: Promise<void> | null = null;
 
-  constructor(private readonly cfg: AppConfig) {}
+  constructor(private readonly cfg: AppConfig) {
+    // Older versions kept one shared ~/.linkit360/session.json. Start from it so
+    // the existing login keeps working; AuthManager then checks it really belongs
+    // to LINKIT_EMAIL and discards it if not.
+    if (cfg.sessionPath !== LEGACY_SESSION_PATH && !existsSync(cfg.sessionPath) && existsSync(LEGACY_SESSION_PATH)) {
+      try {
+        mkdirSync(dirname(cfg.sessionPath), { recursive: true });
+        copyFileSync(LEGACY_SESSION_PATH, cfg.sessionPath);
+        logger.info("Adopted legacy session file for verification", { to: cfg.sessionPath });
+      } catch (e) {
+        logger.warn("Could not adopt legacy session file", e instanceof Error ? e.message : e);
+      }
+    }
+  }
+
+  /** HTTP client sharing the browser context's cookies (launches Chromium if needed). */
+  async apiRequest(): Promise<APIRequestContext> {
+    return (await this.ensureContext()).request;
+  }
 
   private async ensureContext(): Promise<BrowserContext> {
     if (this.context) return this.context;
@@ -111,10 +136,43 @@ export class BrowserManager {
   /** Persists current cookies/localStorage so the session survives restarts. */
   async saveSession(): Promise<void> {
     if (!this.context) return;
-    await mkdir(dirname(this.cfg.sessionPath), { recursive: true });
-    const state = await this.context.storageState();
-    await writeFile(this.cfg.sessionPath, JSON.stringify(state, null, 2), "utf8");
+    await this.writeSessionState(await this.context.storageState());
     logger.debug("Session persisted", { path: this.cfg.sessionPath });
+  }
+
+  /** Atomic write: several MCP processes (Desktop + Code) may share this file. */
+  async writeSessionState(state: unknown): Promise<void> {
+    await mkdir(dirname(this.cfg.sessionPath), { recursive: true });
+    const tmp = `${this.cfg.sessionPath}.${process.pid}.tmp`;
+    await writeFile(tmp, JSON.stringify(state, null, 2), { encoding: "utf8", mode: 0o600 });
+    await rename(tmp, this.cfg.sessionPath);
+  }
+
+  /**
+   * GETs `url` with the current session so the server slides its expiry
+   * forward, then writes the refreshed cookies back. Uses plain HTTP when
+   * Chromium isn't running, so an idle server never launches a browser for this.
+   */
+  async touchSession(url: string, isLoggedIn: (finalUrl: string) => boolean): Promise<boolean> {
+    if (this.context) {
+      const resp = await this.context.request.get(url);
+      const ok = isLoggedIn(resp.url());
+      if (ok) await this.saveSession();
+      return ok;
+    }
+    const api = await request.newContext({ storageState: this.cfg.sessionPath });
+    try {
+      const resp = await api.get(url);
+      const ok = isLoggedIn(resp.url());
+      if (ok) {
+        const prev = JSON.parse(await readFile(this.cfg.sessionPath, "utf8"));
+        const { cookies } = await api.storageState();
+        await this.writeSessionState({ cookies, origins: prev.origins ?? [] });
+      }
+      return ok;
+    } finally {
+      await api.dispose();
+    }
   }
 
   /** Discards the current session both in memory and on disk. */

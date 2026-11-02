@@ -10,16 +10,25 @@ export function registerSessionTools(server: McpServer, ctx: AppContext): void {
       title: "Check session",
       description:
         "Check whether the MCP server currently has a valid authenticated " +
-        "session with LinkIT360. Does not log in. Returns authenticated=true/false.",
+        "session with LinkIT360, and WHICH account it is logged in as. Does not log in. " +
+        "Returns authenticated, loggedInAs, configuredAccount (LINKIT_EMAIL) and accountMatches.",
       inputSchema: {},
     },
     async () => {
       const authenticated = await ctx.auth.isAuthenticated();
+      const loggedInAs = authenticated ? await ctx.auth.sessionAccount() : null;
+      const configuredAccount = ctx.cfg.email;
+      const accountMatches =
+        loggedInAs === null ? null : loggedInAs.toLowerCase() === configuredAccount.trim().toLowerCase();
       return {
         content: [
           {
             type: "text",
-            text: JSON.stringify({ authenticated, baseUrl: ctx.cfg.baseUrl }, null, 2),
+            text: JSON.stringify(
+              { authenticated, loggedInAs, configuredAccount, accountMatches, baseUrl: ctx.cfg.baseUrl },
+              null,
+              2,
+            ),
           },
         ],
       };
@@ -59,7 +68,7 @@ export function registerSessionTools(server: McpServer, ctx: AppContext): void {
     },
     async ({ force, interactive, timeoutSeconds }) => {
       // Reuse a valid session unless forced.
-      if (!force && (await ctx.auth.isAuthenticated())) {
+      if (!force && (await ctx.auth.isAuthenticatedAsConfiguredAccount())) {
         return {
           content: [
             {

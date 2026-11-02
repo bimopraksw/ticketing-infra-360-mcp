@@ -7,12 +7,18 @@ loadDotenv();
 
 /**
  * Default location for the persisted login session: an absolute path in the
- * user's home directory. Using an absolute path (rather than a cwd-relative
- * one) means the file resolves to the same writable spot no matter which
- * working directory the MCP client launches the server from — so users never
- * need to set LINKIT_SESSION_PATH by hand.
+ * user's home directory, one file PER ACCOUNT. Using an absolute path (rather
+ * than a cwd-relative one) means the file resolves to the same writable spot no
+ * matter which working directory the MCP client launches the server from.
+ * Keying it by LINKIT_EMAIL means two accounts on one machine can never end up
+ * sharing (and acting through) each other's login.
  */
-const DEFAULT_SESSION_PATH = join(homedir(), ".linkit360", "session.json");
+export const LEGACY_SESSION_PATH = join(homedir(), ".linkit360", "session.json");
+
+function defaultSessionPath(email: string): string {
+  const key = email.trim().toLowerCase().replace(/[^a-z0-9@._-]/g, "_");
+  return join(homedir(), ".linkit360", `session-${key}.json`);
+}
 
 /**
  * A boolean env var: any value other than a case-insensitive "false"/"0"/"no"
@@ -47,7 +53,7 @@ const EnvSchema = z.object({
     .string()
     .default("true")
     .transform((v) => v.toLowerCase() !== "false"),
-  LINKIT_SESSION_PATH: z.string().default(DEFAULT_SESSION_PATH),
+  LINKIT_SESSION_PATH: z.string().optional(),
   LINKIT_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
   LINKIT_MAX_RETRIES: z.coerce.number().int().min(0).default(2),
   LINKIT_LOCALE: z.string().default("en-US"),
@@ -131,7 +137,7 @@ export function loadConfig(): AppConfig {
       successUrl: emptyToUndefined(e.LINKIT_LOGIN_SUCCESS_URL),
     },
     headless: e.LINKIT_HEADLESS,
-    sessionPath: emptyToUndefined(e.LINKIT_SESSION_PATH) ?? DEFAULT_SESSION_PATH,
+    sessionPath: emptyToUndefined(e.LINKIT_SESSION_PATH) ?? defaultSessionPath(e.LINKIT_EMAIL),
     timeoutMs: e.LINKIT_TIMEOUT_MS,
     maxRetries: e.LINKIT_MAX_RETRIES,
     locale: e.LINKIT_LOCALE,

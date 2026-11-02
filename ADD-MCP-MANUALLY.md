@@ -28,7 +28,7 @@ Every MCP client wants the same three things: a **command**, its **args**, and a
 ```
 
 > `LINKIT_SESSION_PATH` is **optional** — leave it out and the server stores
-> your login at `~/.linkit360/session.json`. Only add it if you want a
+> your login at `~/.linkit360/session-<your email>.json`. Only add it if you want a
 > different (absolute) location.
 
 **Installed from source instead of npx?** Swap the first two lines for an
@@ -50,7 +50,7 @@ Everything below is just *where each client wants this block pasted*.
 | `LINKIT_BASE_URL` | ✅ | `https://report.linkit360.com` |
 | `LINKIT_EMAIL` | ✅ | `you@linkit360.com` |
 | `LINKIT_PASSWORD` | ✅ | `your-password` |
-| `LINKIT_SESSION_PATH` | optional | defaults to `~/.linkit360/session.json`; override with an **absolute** path |
+| `LINKIT_SESSION_PATH` | optional | defaults to `~/.linkit360/session-<your email>.json`; override with an **absolute** path |
 | `LINKIT_LOGIN_PATH` | optional | default `/login` |
 | `LINKIT_HEADLESS` | optional | default `true` (the **login** flow always shows a window so you can solve the reCAPTCHA) |
 | `LINKIT_TIMEOUT_MS` | optional | default `30000` |
@@ -61,7 +61,7 @@ Everything below is just *where each client wants this block pasted*.
 > **Always use absolute paths** (if you override `LINKIT_SESSION_PATH`, and for
 > `dist/index.js`). Clients launch the server from unpredictable working
 > directories, so relative paths silently break. The built-in default
-> (`~/.linkit360/session.json`) is already absolute, so leaving it unset is safe.
+> (`~/.linkit360/session-<your email>.json`) is already absolute, so leaving it unset is safe.
 
 ---
 
@@ -252,7 +252,7 @@ This is a standard **stdio** MCP server. Any compliant client works — give it:
 | Server won't launch on Windows | Use `"command": "cmd", "args": ["/c", "npx", "-y", "ticketing-infra-360-mcp"]`. |
 | Login window never opens | Headless/remote box with no display — run on a desktop, or `npm run login` elsewhere and copy `session.json` over. |
 | "protected by reCAPTCHA" on a tool call | Session expired — say "log in to LinkIT360" again. |
-| Session ignored after login | The default `~/.linkit360/session.json` is shared across clients automatically. If you overrode `LINKIT_SESSION_PATH`, use the **same absolute** path everywhere and ensure it's writable. |
+| Session ignored after login | The default `~/.linkit360/session-<your email>.json` is shared across clients automatically. If you overrode `LINKIT_SESSION_PATH`, use the **same absolute** path everywhere and ensure it's writable. |
 
 See [INSTALL.md](INSTALL.md) for the full install + login walkthrough and
 maintainer/publishing notes.

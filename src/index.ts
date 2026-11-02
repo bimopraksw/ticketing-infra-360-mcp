@@ -10,7 +10,7 @@ import { registerResources } from "./resources/index.js";
 import { startBackgroundAutoUpdate } from "./utils/auto-update.js";
 import { startBackgroundChromiumInstall, chromiumPresent } from "./utils/browser-bootstrap.js";
 
-const VERSION = "0.6.0";
+const VERSION = "0.7.0";
 
 function handleCliFlags(): boolean {
   const args = process.argv.slice(2);
@@ -29,7 +29,7 @@ function handleCliFlags(): boolean {
         `  LINKIT_PASSWORD      your LinkIT360 password\n\n` +
         `Optional:\n` +
         `  LINKIT_SESSION_PATH  where to store the login session\n` +
-        `                       (default: ~/.linkit360/session.json)\n\n` +
+        `                       (default: ~/.linkit360/session-<email>.json)\n\n` +
         `First-time login (solves the reCAPTCHA in a real browser):\n` +
         `  ticketing-infra-360-login        (or: npm run login)\n\n` +
         `See INSTALL.md for full setup and client configuration.\n`,
@@ -55,6 +55,7 @@ async function main(): Promise<void> {
   if (cfg.autoInstallBrowser && !chromiumPresent()) {
     startBackgroundChromiumInstall();
   }
+  ctx.auth.startKeepAlive();
 
   const server = new McpServer({
     name: "ticketing-infra-360",

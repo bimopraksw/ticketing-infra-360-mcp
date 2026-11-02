@@ -36,7 +36,7 @@ npx -p ticketing-infra-360-mcp ticketing-infra-360-login
 $env:LINKIT_BASE_URL="https://report.linkit360.com"; $env:LINKIT_EMAIL="you@linkit360.com"; $env:LINKIT_PASSWORD="your-password"; npx -p ticketing-infra-360-mcp ticketing-infra-360-login
 ```
 First run downloads ~150 MB (once). A browser opens → tick **I'm not a robot** →
-click **Login**. Done when the terminal prints `✓ Session saved to ~/.linkit360/session.json`.
+click **Login**. Done when the terminal prints `✓ Session saved to ~/.linkit360/session-<your email>.json`.
 
 **3. Register it in Claude Desktop.** Settings → Developer → **Edit Config**.
 If the file is empty, paste this and replace the two values:
@@ -134,8 +134,9 @@ Required env vars:
 | `LINKIT_PASSWORD` | `your-password` |
 
 > **You do not need to set `LINKIT_SESSION_PATH`.** It defaults to
-> `~/.linkit360/session.json` — an absolute path in your home directory that
-> works no matter where the client launches the process. Only set it (to an
+> `~/.linkit360/session-<your email>.json`, an absolute path in your home directory that
+> works no matter where the client launches the process. Each account gets its own
+> file, so two people (or two accounts) on one computer never share a login. Only set it (to an
 > **absolute** path) if you want the saved login stored somewhere else.
 
 Below, use **ONE** of these `command`/`args` pairs depending on your install:
@@ -261,7 +262,7 @@ current and stay current.
 | Login window never appears | Headless/remote machine (no display). Run on a desktop, or do `npm run login` on a machine with a display and copy the session file over. |
 | "Login page is protected by reCAPTCHA…" on a tool call | Session expired. By default a login window now opens on its own — just solve the captcha in it. If it doesn't, say "log in to LinkIT360". |
 | Chromium not found | It installs itself in the background on first use — retry the request in a minute (no restart needed). To install manually: `npx playwright install chromium`. |
-| Session not picked up after login | The default `~/.linkit360/session.json` is shared automatically. If you overrode `LINKIT_SESSION_PATH`, use the **same absolute path** in every config and make sure it's writable. |
+| Session not picked up after login | The default `~/.linkit360/session-<your email>.json` is shared automatically by every client using the same `LINKIT_EMAIL`. If you overrode `LINKIT_SESSION_PATH`, use the **same absolute path** in every config and make sure it's writable. |
 
 ---
 

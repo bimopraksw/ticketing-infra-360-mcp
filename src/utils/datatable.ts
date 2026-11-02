@@ -193,6 +193,9 @@ async function fetchServerSide(
   const lengthMismatch = visibleColData.length !== meta.headers.length;
   const rows = json.data.map((r) => {
     const obj: Record<string, string> = {};
+    // The record's real id (what detail/edit URLs use) is in the row data even
+    // though no column shows it; the "No" column is just the row index.
+    if (r.id !== undefined && r.id !== null) obj.id = String(r.id);
     meta.headers.forEach((h, i) => {
       const key = visibleColData[i];
       obj[h || `col${i}`] = stripHtml(key ? r[key] : "");
