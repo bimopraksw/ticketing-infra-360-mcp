@@ -285,6 +285,26 @@ same `env`. Restart the extension host afterwards.
 
 ---
 
+## Updates (controlled by the maintainers)
+
+Every install checks for a newer version on startup and every 6 hours. When
+one is out, the next tool result carries a short note (at most once a day)
+telling the user exactly how to get it for their install type. `check_session`
+also reports `version.current`, `version.latest` and `version.howToUpdate`.
+
+| Install | How a user gets a new release |
+|---|---|
+| `npx` config (recommended) | Restart Claude. npx resolves the newest npm version on every launch. |
+| git clone | Updates itself in the background; restart Claude to load it. |
+| `.mcpb` extension / global npm install | Never updates itself. The note tells the user to switch to the `npx` config once. |
+
+**For maintainers:**
+
+- **Release:** bump `version` in `package.json`, commit, push, then `npm publish`. npx users get it on their next restart.
+- **Roll back:** `npm dist-tag add ticketing-infra-360-mcp@<good-version> latest` points every npx user back to that version on their next restart.
+- **Force an update:** raise `minVersion` in [`version-policy.json`](version-policy.json) on `main` (edit it on GitHub and commit) and optionally set `message`. Installs below that version refuse to create, reply to, close or submit anything, and show the user how to update, while reading tickets keeps working. Use this for bugs that write wrong data. It takes effect within 6 hours, or on the user's next restart. Set it back to `0.0.0` to lift it.
+- Checks fail open: if npm or GitHub can't be reached, nothing is blocked. Enforcement exists from v0.7.1 on; older versions have no check, so they need one restart (automatic for npx users).
+
 ## Troubleshooting
 
 | Symptom | Cause / Fix |

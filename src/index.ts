@@ -9,8 +9,9 @@ import { registerPrompts } from "./prompts/index.js";
 import { registerResources } from "./resources/index.js";
 import { startBackgroundAutoUpdate } from "./utils/auto-update.js";
 import { startBackgroundChromiumInstall, chromiumPresent } from "./utils/browser-bootstrap.js";
+import { applyVersionGate, CURRENT_VERSION } from "./utils/version-check.js";
 
-const VERSION = "0.7.0";
+const VERSION = CURRENT_VERSION ?? "unknown";
 
 function handleCliFlags(): boolean {
   const args = process.argv.slice(2);
@@ -56,12 +57,14 @@ async function main(): Promise<void> {
     startBackgroundChromiumInstall();
   }
   ctx.auth.startKeepAlive();
+  ctx.version.start();
 
   const server = new McpServer({
     name: "ticketing-infra-360",
     version: VERSION,
   });
 
+  applyVersionGate(server, ctx.version);
   registerAllTools(server, ctx);
   registerPrompts(server);
   registerResources(server, ctx);

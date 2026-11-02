@@ -11,7 +11,9 @@ export function registerSessionTools(server: McpServer, ctx: AppContext): void {
       description:
         "Check whether the MCP server currently has a valid authenticated " +
         "session with LinkIT360, and WHICH account it is logged in as. Does not log in. " +
-        "Returns authenticated, loggedInAs, configuredAccount (LINKIT_EMAIL) and accountMatches.",
+        "Returns authenticated, loggedInAs, configuredAccount (LINKIT_EMAIL) and accountMatches, " +
+        "plus this MCP's version, the latest released version, and how to update if it's behind. " +
+        "Use it when the user asks which version they run or whether an update is available.",
       inputSchema: {},
     },
     async () => {
@@ -20,12 +22,17 @@ export function registerSessionTools(server: McpServer, ctx: AppContext): void {
       const configuredAccount = ctx.cfg.email;
       const accountMatches =
         loggedInAs === null ? null : loggedInAs.toLowerCase() === configuredAccount.trim().toLowerCase();
+      const v = ctx.version.getStatus();
+      const version = {
+        ...v,
+        howToUpdate: v.updateAvailable || v.belowMinimum ? ctx.version.howToUpdate() : undefined,
+      };
       return {
         content: [
           {
             type: "text",
             text: JSON.stringify(
-              { authenticated, loggedInAs, configuredAccount, accountMatches, baseUrl: ctx.cfg.baseUrl },
+              { authenticated, loggedInAs, configuredAccount, accountMatches, baseUrl: ctx.cfg.baseUrl, version },
               null,
               2,
             ),

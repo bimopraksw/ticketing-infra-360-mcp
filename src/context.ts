@@ -1,16 +1,18 @@
 import type { AppConfig } from "./config.js";
 import { BrowserManager } from "./browser.js";
 import { AuthManager } from "./auth.js";
+import { VersionChecker } from "./utils/version-check.js";
 
 /** Bundle of shared services handed to every tool. */
 export interface AppContext {
   cfg: AppConfig;
   browser: BrowserManager;
   auth: AuthManager;
+  version: VersionChecker;
 }
 
 export function createContext(cfg: AppConfig): AppContext {
   const browser = new BrowserManager(cfg);
   const auth = new AuthManager(cfg, browser);
-  return { cfg, browser, auth };
+  return { cfg, browser, auth, version: new VersionChecker() };
 }
