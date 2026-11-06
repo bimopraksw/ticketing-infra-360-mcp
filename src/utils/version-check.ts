@@ -13,7 +13,7 @@ const CHECK_EVERY_MS = 6 * 60 * 60 * 1000;
 const RENOTIFY_MS = 24 * 60 * 60 * 1000;
 
 /** Tools that change data on the site; refused while this version is below the minimum. */
-const WRITE_TOOLS = new Set(["create_infra_ticket", "reply_to_ticket", "close_ticket", "submit_form"]);
+export const WRITE_TOOLS = new Set(["create_infra_ticket", "reply_to_ticket", "close_ticket", "submit_form"]);
 
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 

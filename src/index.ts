@@ -10,6 +10,7 @@ import { registerResources } from "./resources/index.js";
 import { startBackgroundAutoUpdate } from "./utils/auto-update.js";
 import { startBackgroundChromiumInstall, chromiumPresent } from "./utils/browser-bootstrap.js";
 import { applyVersionGate, CURRENT_VERSION } from "./utils/version-check.js";
+import { applyRequesterGuard } from "./utils/requester-guard.js";
 
 const VERSION = CURRENT_VERSION ?? "unknown";
 
@@ -65,6 +66,7 @@ async function main(): Promise<void> {
   });
 
   applyVersionGate(server, ctx.version);
+  applyRequesterGuard(server, cfg);
   registerAllTools(server, ctx);
   registerPrompts(server);
   registerResources(server, ctx);

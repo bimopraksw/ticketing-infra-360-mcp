@@ -86,6 +86,7 @@ tests/
 - **Seamless re-login** — when a session expires mid-task, the server automatically opens a real browser window so you just solve the captcha and continue. No terminal, no app restart (`LINKIT_AUTO_LOGIN`, default on).
 - **Self-installing browser** — if Chromium is missing it installs in the background; you just retry the request a minute later (`LINKIT_AUTO_INSTALL_BROWSER`, default on).
 - **Automatic updates** — on startup the server quietly pulls the latest code from GitHub and rebuilds; the update applies on the next launch, with no manual `git pull`/`build` and no restart prompt (`LINKIT_AUTO_UPDATE`, default on).
+- **Requester check** — create, reply, close and `submit_form` must say who asked (`requestedBy`, an email or name). If that person isn't the owner of the account set up on this computer, the tool refuses and tells them to use Claude on their own laptop. This stops tickets landing under someone else's name when several people share one Claude account (`LINKIT_CHECK_REQUESTER`, default on).
 - **Retry with backoff** — transient navigation/network errors retried (`LINKIT_MAX_RETRIES`).
 - **Timeouts** — per-navigation timeout (`LINKIT_TIMEOUT_MS`).
 - **Selector auto-detection** — login fields detected across common Laravel conventions, overridable via env.
@@ -314,6 +315,7 @@ also reports `version.current`, `version.latest` and `version.howToUpdate`.
 | Could not locate email/password field | Login markup differs. Run `node tests/detect-login.mjs`, then set the `LINKIT_LOGIN_*_SELECTOR` env vars. |
 | Session keeps expiring | Normal — the server auto-opens a login window when needed; just solve the captcha in it. To force a fresh login, delete `~/.linkit360/session-<your email>.json`. Set `LINKIT_AUTO_LOGIN=false` to disable the auto-window. |
 | Tickets created under someone else's name | Fixed in 0.7.0. Each account has its own session file, and the server checks `/profile` before acting: a session that belongs to a different account than `LINKIT_EMAIL` is discarded and you are asked to log in with the right one. Run `check_session` to see `loggedInAs` vs `configuredAccount`. |
+| Tickets created under someone else's name, and you share one Claude account | Claude Desktop lets a chat on the same Claude account run tools on another person's computer, so the ticket is filed under that computer's LinkIT360 account. Since 0.7.2 write tools refuse when `requestedBy` isn't that account's owner. Best fix: give each person their own Claude account. Otherwise always chat from Claude Desktop on your own laptop. `check_session` shows which `computer` the MCP runs on. |
 | Timeouts | Increase `LINKIT_TIMEOUT_MS`; raise `LINKIT_MAX_RETRIES`. Set `LINKIT_HEADLESS=false` to watch the browser. |
 | Rate limiting / 429 | Use the persistent session (default) to minimize logins; add delays between bulk writes. |
 | `submit_form` reports `success:false` | Read the returned `errors[]` (server validation). Re-run `inspect_form` to confirm field names; required fields may be missing. |

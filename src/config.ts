@@ -71,6 +71,12 @@ const EnvSchema = z.object({
   LINKIT_AUTO_INSTALL_BROWSER: boolFromEnv("true"),
   LINKIT_AUTO_UPDATE: boolFromEnv("true"),
 
+  // Write tools (create/reply/close/submit) must say who asked, and refuse when
+  // that isn't the account set up here. Several people can share one Claude
+  // account, and a chat can then reach someone else's computer and file
+  // tickets under their name.
+  LINKIT_CHECK_REQUESTER: boolFromEnv("true"),
+
   // Default ticket priority. P3 is the safe, no-approval-needed default; only
   // P0/P1/P2 trigger the approval workflow.
   LINKIT_DEFAULT_CLASSIFICATION: z
@@ -103,6 +109,7 @@ export interface AppConfig {
   autoLogin: boolean;
   autoInstallBrowser: boolean;
   autoUpdate: boolean;
+  checkRequester: boolean;
   defaultClassification: "P0" | "P1" | "P2" | "P3" | "P4";
   logLevel: "debug" | "info" | "warn" | "error";
 }
@@ -144,6 +151,7 @@ export function loadConfig(): AppConfig {
     autoLogin: e.LINKIT_AUTO_LOGIN,
     autoInstallBrowser: e.LINKIT_AUTO_INSTALL_BROWSER,
     autoUpdate: e.LINKIT_AUTO_UPDATE,
+    checkRequester: e.LINKIT_CHECK_REQUESTER,
     defaultClassification: e.LINKIT_DEFAULT_CLASSIFICATION,
     logLevel: e.LINKIT_LOG_LEVEL,
   };

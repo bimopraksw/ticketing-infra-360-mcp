@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { AppContext } from "../context.js";
 import { logger } from "../logger.js";
+import { COMPUTER_NAME } from "../utils/requester-guard.js";
 
 export function registerSessionTools(server: McpServer, ctx: AppContext): void {
   server.registerTool(
@@ -11,7 +12,8 @@ export function registerSessionTools(server: McpServer, ctx: AppContext): void {
       description:
         "Check whether the MCP server currently has a valid authenticated " +
         "session with LinkIT360, and WHICH account it is logged in as. Does not log in. " +
-        "Returns authenticated, loggedInAs, configuredAccount (LINKIT_EMAIL) and accountMatches, " +
+        "Returns authenticated, loggedInAs, configuredAccount (LINKIT_EMAIL), accountMatches, " +
+        "and the name of the computer this MCP runs on (tickets are filed under that computer's account), " +
         "plus this MCP's version, the latest released version, and how to update if it's behind. " +
         "Use it when the user asks which version they run or whether an update is available.",
       inputSchema: {},
@@ -32,7 +34,16 @@ export function registerSessionTools(server: McpServer, ctx: AppContext): void {
           {
             type: "text",
             text: JSON.stringify(
-              { authenticated, loggedInAs, configuredAccount, accountMatches, baseUrl: ctx.cfg.baseUrl, version },
+              {
+                authenticated,
+                loggedInAs,
+                configuredAccount,
+                accountMatches,
+                computer: COMPUTER_NAME,
+                writesCheckRequester: ctx.cfg.checkRequester,
+                baseUrl: ctx.cfg.baseUrl,
+                version,
+              },
               null,
               2,
             ),
