@@ -11,6 +11,58 @@ There are **two ways to install**:
 
 Pick one, then jump to [Register it with your agent](#3-register-it-with-your-agent).
 
+**Already use Claude Code?** Skip all of that: [paste one prompt](#fastest-paste-one-prompt-into-claude-code)
+and Claude Code installs or updates it for both Claude Code and Claude Desktop.
+
+---
+
+## Fastest: paste one prompt into Claude Code
+
+Works for a fresh install and for updating an existing one. Fill in the three
+lines at the top, then paste the whole block into Claude Code (any folder):
+
+```text
+Set up (or update) the LinkIT360 ticketing MCP server "ticketing-infra-360" on this
+computer, for both Claude Desktop and Claude Code. My details:
+
+LINKIT_EMAIL: you@linkit360.com
+LINKIT_PASSWORD: your-password
+NOPECHA_KEY: (optional, leave empty if you don't have one)
+
+Steps:
+1. Check that `node -v` is 20 or newer. If not, stop and tell me to install the LTS
+   version from https://nodejs.org.
+2. Claude Desktop config (macOS: ~/Library/Application Support/Claude/claude_desktop_config.json,
+   Windows: %APPDATA%\Claude\claude_desktop_config.json). Back it up first if it exists,
+   create it if it doesn't. Add or replace only the "ticketing-infra-360" entry under
+   "mcpServers" and keep every other server and setting:
+   - "command": "npx", "args": ["-y", "ticketing-infra-360-mcp"]
+   - "env": LINKIT_BASE_URL = https://report.linkit360.com, plus LINKIT_EMAIL,
+     LINKIT_PASSWORD and NOPECHA_KEY from above (leave NOPECHA_KEY out if empty)
+   - macOS only: Claude Desktop doesn't see the shell PATH, so use the absolute path
+     from `command -v npx` as "command", and add "PATH" to env: the folder of
+     `command -v node`, then /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+   Check that the file is still valid JSON.
+3. Claude Code: remove any old entry (`claude mcp remove ticketing-infra-360 -s user`
+   and `-s local`, ignore "not found"), then add it for every folder with
+   `claude mcp add-json -s user ticketing-infra-360 '<json>'`, using the same command,
+   args and env as step 2.
+4. Restart Claude Desktop so it loads the newest version and the new settings.
+   macOS: `osascript -e 'quit app "Claude"'; sleep 5; open -a Claude`.
+   Windows: tell me to quit it from the tray icon and open it again.
+   If you are running inside the Claude Desktop app, don't quit it (that would end
+   this chat); tell me to do it at the end instead.
+5. Never print my password or key back to me. When done, tell me what changed. Then
+   tell me to type /mcp, pick ticketing-infra-360 and choose Reconnect (if it isn't
+   listed, exit Claude Code and start it again with `claude -c`), and to ask
+   "check my LinkIT360 session". If it says I'm not logged in, I say
+   "log in to LinkIT360" once.
+```
+
+Your password stays on your computer: it only goes into your local Claude config
+files. Ask your team lead for the team's NopeCHA key (see [section 4](#4-first-use--log-in-once)),
+and never post it in a public channel.
+
 ---
 
 ## Quick start — Claude Desktop with `npx` (~10 min)
@@ -59,8 +111,9 @@ If the file is empty, paste this and replace the two values:
 If it already has other servers, add only the `"ticketing-infra-360": { … }`
 entry inside `mcpServers`. Save the file.
 
-**4. Restart Claude Desktop** — fully quit (macOS `Cmd+Q`; Windows: tray icon →
-Quit), then reopen.
+**4. Restart Claude Desktop.** Quit it fully (macOS: `Cmd+Q`; Windows: tray icon →
+Quit), then reopen it. Closing the window is not enough, see
+[Restart Claude after a change](#restart-claude-after-a-change).
 
 **5. Test** — ask Claude: *"List the latest infra tickets in LinkIT360."*
 Live ticket rows = done. ✅
@@ -180,7 +233,7 @@ Edit the config file:
   }
 }
 ```
-Then **fully quit and reopen** Claude Desktop.
+Then **fully quit and reopen** Claude Desktop ([how](#restart-claude-after-a-change)).
 
 > From source, replace `"command"/"args"` with
 > `"command": "node", "args": ["/ABS/PATH/ticketing-infra-360-mcp/dist/index.js"]`.
@@ -198,6 +251,21 @@ the extension host. (Exact UI varies by extension.)
 ---
 
 ## 4. First use — log in once
+
+**Skip the captcha (optional):** with a NopeCHA API key the server logs in by
+itself in a hidden browser whenever the session expires, and the manual window
+below only opens if that fails. Get the team's key from your team lead (or create
+an account at <https://nopecha.com>), then add it to the same `env` block as your
+email and password:
+
+- **Claude Desktop:** add `"NOPECHA_KEY": "your-key"` inside `env`, next to `LINKIT_PASSWORD`.
+- **Claude Code:** run `claude mcp remove ticketing-infra-360`, then the
+  `claude mcp add` command from [section 3](#claude-code-cli) with one more
+  `-e NOPECHA_KEY=your-key`.
+
+Then [restart Claude](#restart-claude-after-a-change). The
+[one-prompt setup](#fastest-paste-one-prompt-into-claude-code) does all of this for
+you. Without a key, do the one-time manual login below.
 
 In your agent, say:
 
@@ -230,12 +298,55 @@ Available tools: `login`, `check_session`, `logout`, `navigate`, `inspect_form`,
 
 ---
 
+## Restart Claude after a change
+
+Claude only reads the MCP config when it starts the server. Restart after you:
+
+- edit the `env` block (for example to add `NOPECHA_KEY` or change your password), or
+- want a newly published version right away (npx installs load it on start).
+
+Logging in and the Chromium download don't need a restart.
+
+### Claude Code: reconnect the server
+
+No need to close Claude Code or lose your conversation:
+
+1. Type `/mcp` and press Enter.
+2. Pick `ticketing-infra-360`.
+3. Choose **Reconnect**.
+
+It confirms with `Reconnected to ticketing-infra-360.` If the server isn't listed
+(for example right after `claude mcp add`), exit Claude Code (`/exit`) and start it
+again with `claude -c` to continue your last conversation.
+
+### Claude Desktop: quit it fully, then reopen
+
+Closing the window is not enough. Claude keeps running in the background with the
+old server still loaded.
+
+- **macOS:** press `Cmd+Q` while Claude is in front (or **Claude → Quit Claude** in
+  the menu bar), then open Claude again. Or from Terminal in one go:
+  ```bash
+  osascript -e 'quit app "Claude"'; sleep 5; open -a Claude
+  ```
+- **Windows:** right-click the Claude icon in the system tray (near the clock, it
+  may be hidden under the `^` arrow) and choose **Quit**, then open Claude from the
+  Start menu. If it still runs the old version, end every **Claude** task in Task
+  Manager (`Ctrl+Shift+Esc`) and open it again.
+
+To check, ask Claude *"check my LinkIT360 session"*: the reply includes the version
+it runs and whether an update is available.
+
+---
+
 ## Updating
 
 **`npx` installs (recommended channel).** Because the config runs the bare
 package name, each launch resolves the latest version published to npm, so once
-a new release is published, you get it on your next launch. No terminal, no
-rebuild. To force it right away: `npx clear-npx-cache`, or pin a version such as
+a new release is published, you get it on your next launch
+([restart Claude](#restart-claude-after-a-change) to load it now). No terminal, no
+rebuild. Or paste the [one prompt](#fastest-paste-one-prompt-into-claude-code) into
+Claude Code, which updates both Claude Code and Claude Desktop. To force it right away: `npx clear-npx-cache`, or pin a version such as
 `ticketing-infra-360-mcp@0.6.0`.
 
 **Source (git clone) installs.** The server self-heals: on startup it quietly
@@ -257,7 +368,7 @@ current and stay current.
 
 | Symptom | Fix |
 |---|---|
-| Agent shows no LinkIT360 tools | Wrong path/command, or client not restarted. Verify absolute path to `dist/index.js`, then fully restart the client. |
+| Agent shows no LinkIT360 tools | Wrong path/command, or client not restarted. Verify absolute path to `dist/index.js`, then [restart the client](#restart-claude-after-a-change). |
 | "Invalid environment configuration" | Missing `LINKIT_EMAIL`/`LINKIT_PASSWORD`/`LINKIT_BASE_URL` in the `env` block. |
 | Login window never appears | Headless/remote machine (no display). Run on a desktop, or do `npm run login` on a machine with a display and copy the session file over. |
 | "Login page is protected by reCAPTCHA…" on a tool call | Session expired. By default a login window now opens on its own — just solve the captcha in it. If it doesn't, say "log in to LinkIT360". |

@@ -77,6 +77,16 @@ const EnvSchema = z.object({
   // tickets under their name.
   LINKIT_CHECK_REQUESTER: boolFromEnv("true"),
 
+  // Automatic login through NopeCHA, so nobody has to tick the reCAPTCHA:
+  //  - "nopecha": Token API, active when NOPECHA_KEY is set (an API key from
+  //    nopecha.com).
+  //  - "nopecha-extension": browser extension, no key needed but unreliable.
+  //  - "none": off.
+  // When it can't run or fails, the manual login window opens as before.
+  LINKIT_CAPTCHA_SOLVER: z.enum(["nopecha", "nopecha-extension", "none"]).default("nopecha"),
+  NOPECHA_KEY: z.string().optional(),
+  LINKIT_SOLVER_TIMEOUT_MS: z.coerce.number().int().positive().default(120000),
+
   // Default ticket priority. P3 is the safe, no-approval-needed default; only
   // P0/P1/P2 trigger the approval workflow.
   LINKIT_DEFAULT_CLASSIFICATION: z
@@ -110,6 +120,9 @@ export interface AppConfig {
   autoInstallBrowser: boolean;
   autoUpdate: boolean;
   checkRequester: boolean;
+  captchaSolver: "nopecha" | "nopecha-extension" | "none";
+  nopechaKey?: string;
+  solverTimeoutMs: number;
   defaultClassification: "P0" | "P1" | "P2" | "P3" | "P4";
   logLevel: "debug" | "info" | "warn" | "error";
 }
@@ -152,6 +165,9 @@ export function loadConfig(): AppConfig {
     autoInstallBrowser: e.LINKIT_AUTO_INSTALL_BROWSER,
     autoUpdate: e.LINKIT_AUTO_UPDATE,
     checkRequester: e.LINKIT_CHECK_REQUESTER,
+    captchaSolver: e.LINKIT_CAPTCHA_SOLVER,
+    nopechaKey: emptyToUndefined(e.NOPECHA_KEY),
+    solverTimeoutMs: e.LINKIT_SOLVER_TIMEOUT_MS,
     defaultClassification: e.LINKIT_DEFAULT_CLASSIFICATION,
     logLevel: e.LINKIT_LOG_LEVEL,
   };

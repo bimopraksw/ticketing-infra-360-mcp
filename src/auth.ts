@@ -1,12 +1,13 @@
-import { chromium, type APIRequestContext, type Page } from "playwright";
+import { chromium, type APIRequestContext, type BrowserContext, type Page } from "playwright";
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import type { AppConfig } from "./config.js";
 import { resolveUrl } from "./config.js";
 import { logger } from "./logger.js";
 import { BrowserManager } from "./browser.js";
 import { withRetry } from "./utils/retry.js";
 import { requireChromium, chromiumLaunchOptions } from "./utils/browser-bootstrap.js";
+import { prepareNopechaExtension, solveRecaptchaToken, tempProfileDir } from "./utils/captcha-solver.js";
 
 /**
  * Candidate selectors tried (in order) when the login form fields are not
@@ -338,14 +339,32 @@ export class AuthManager {
     });
 
     const p = (async () => {
-      if (this.cfg.autoLogin) {
-        // Open the visible browser automatically — the user just solves the
-        // captcha in the window that appears; no terminal, no app restart.
-        await this.interactiveLogin();
-      } else {
-        // Opt-out path: try the headless form login (works only on captcha-free
-        // sites; otherwise it throws a clear message).
-        await this.login(true);
+      // First choice: log in with nobody involved (hidden browser + captcha solver).
+      let solverError: string | null = null;
+      if (this.solverAvailable()) {
+        try {
+          await this.solverLogin();
+          return;
+        } catch (e) {
+          solverError = e instanceof Error ? e.message : String(e);
+          logger.warn("Automatic login failed; falling back", { reason: solverError });
+        }
+      }
+      try {
+        if (this.cfg.autoLogin) {
+          // Open the visible browser automatically — the user just solves the
+          // captcha in the window that appears; no terminal, no app restart.
+          await this.interactiveLogin();
+        } else {
+          // Opt-out path: try the headless form login (works only on captcha-free
+          // sites; otherwise it throws a clear message).
+          await this.login(true);
+        }
+      } catch (e) {
+        if (!solverError) throw e;
+        throw new Error(
+          `${e instanceof Error ? e.message : String(e)} (Automatic login also failed: ${solverError})`,
+        );
       }
     })();
     this.reauthInFlight = p;
@@ -356,6 +375,162 @@ export class AuthManager {
       // Don't clobber a newer login that may have replaced ours.
       if (this.reauthInFlight === p) this.reauthInFlight = null;
     }
+  }
+
+  /** Which automatic login can run here, or null when only the manual window can. */
+  private solverMode(): "token" | "extension" | null {
+    if (this.cfg.captchaSolver === "nopecha-extension") return "extension";
+    if (this.cfg.captchaSolver === "nopecha" && this.cfg.nopechaKey) return "token";
+    return null;
+  }
+
+  /** True when an automatic (no human) login is configured. */
+  solverAvailable(): boolean {
+    return this.solverMode() !== null;
+  }
+
+  /**
+   * Logs in with nobody involved. With a NopeCHA key, NopeCHA's Token API
+   * solves the reCAPTCHA from the sitekey and page URL and the token goes into
+   * the form; the credentials never leave this machine. In extension mode the
+   * NopeCHA extension clicks through the challenge in a throwaway profile that
+   * is deleted afterwards. Either way the browser the tools use is untouched.
+   */
+  async solverLogin(): Promise<{ success: boolean; finalUrl: string; automatic: true; via: string; seconds: number }> {
+    const mode = this.solverMode();
+    if (!mode) {
+      throw new Error(
+        this.cfg.captchaSolver === "none"
+          ? "Automatic login is turned off (LINKIT_CAPTCHA_SOLVER=none)."
+          : "Automatic login needs a NopeCHA API key (ask your team lead, or get one at " +
+              "https://nopecha.com). Add it as NOPECHA_KEY to this MCP's env config.",
+      );
+    }
+    requireChromium();
+    const started = Date.now();
+    this.verifiedAccount = false;
+    const base = chromiumLaunchOptions({ headless: this.cfg.headless });
+    let context: BrowserContext;
+    let cleanup: () => Promise<void>;
+    if (mode === "token") {
+      const browser = await chromium.launch(base);
+      context = await browser.newContext({ locale: this.cfg.locale, viewport: { width: 1366, height: 900 } });
+      cleanup = () => browser.close().catch(() => undefined);
+    } else {
+      const extension = await prepareNopechaExtension(this.cfg.nopechaKey);
+      const profile = await tempProfileDir();
+      const ctx = await chromium.launchPersistentContext(profile, {
+        ...base,
+        args: [...(base.args ?? []), `--disable-extensions-except=${extension}`, `--load-extension=${extension}`],
+        locale: this.cfg.locale,
+        viewport: { width: 1366, height: 900 },
+      });
+      context = ctx;
+      cleanup = async () => {
+        await ctx.close().catch(() => undefined);
+        await rm(profile, { recursive: true, force: true }).catch(() => undefined);
+      };
+    }
+    let finalUrl = "";
+    let signedInAs: string | null = null;
+    logger.info("Logging in automatically", { via: mode });
+    try {
+      context.setDefaultTimeout(this.cfg.timeoutMs);
+      context.setDefaultNavigationTimeout(this.cfg.timeoutMs);
+      if (mode === "extension") {
+        const worker =
+          context.serviceWorkers()[0] ??
+          (await context.waitForEvent("serviceworker", { timeout: 15000 }).catch(() => null));
+        if (!worker) throw new Error("the NopeCHA extension did not start");
+      }
+      const page = await context.newPage();
+      await page.goto(this.loginUrl(), { waitUntil: "domcontentloaded" });
+
+      if (await this.hasCaptcha(page)) {
+        if (mode === "token") await this.fillCaptchaToken(page);
+        else await this.waitForExtensionSolve(page);
+        logger.info("Captcha solved", { via: mode, seconds: Math.round((Date.now() - started) / 1000) });
+      }
+
+      const emailSel = await this.findSelector(page, this.cfg.login.emailSelector, EMAIL_CANDIDATES, "email/username");
+      const passSel = await this.findSelector(page, this.cfg.login.passwordSelector, PASSWORD_CANDIDATES, "password");
+      const submitSel = await this.findSelector(page, this.cfg.login.submitSelector, SUBMIT_CANDIDATES, "submit button");
+      await page.fill(emailSel, this.cfg.email);
+      await page.fill(passSel, this.cfg.password);
+      await page.click(submitSel);
+      await page.waitForURL((u) => !this.isOnLoginPage(u.toString()), { timeout: 30000 }).catch(() => undefined);
+
+      finalUrl = page.url();
+      if (this.isOnLoginPage(finalUrl)) {
+        const serverMessage = await this.extractLoginError(page);
+        throw new Error(
+          "the login form was submitted but the site stayed on the login page" +
+            (serverMessage ? ` ("${serverMessage}")` : ""),
+        );
+      }
+      signedInAs = await this.accountOf(context.request);
+      if (signedInAs && !this.isConfiguredAccount(signedInAs)) {
+        throw new Error(`the site signed in as ${signedInAs}, not ${this.cfg.email}`);
+      }
+      await this.persistFromContext(context);
+    } finally {
+      await cleanup();
+    }
+
+    await this.browser.reloadSession();
+    this.verifiedAccount = signedInAs !== null;
+    const seconds = Math.round((Date.now() - started) / 1000);
+    logger.info("Automatic login complete; session saved & reloaded", { finalUrl, signedInAs, via: mode, seconds });
+    return { success: true, finalUrl, automatic: true, via: `nopecha-${mode}`, seconds };
+  }
+
+  /** Gets a token from the NopeCHA Token API and puts it where the form expects it. */
+  private async fillCaptchaToken(page: Page): Promise<void> {
+    const widget = await page.evaluate(() => {
+      const el = document.querySelector("[data-sitekey]");
+      return el ? { sitekey: el.getAttribute("data-sitekey") ?? "", s: el.getAttribute("data-s") ?? "" } : null;
+    });
+    if (!widget?.sitekey) throw new Error("could not find the reCAPTCHA sitekey on the login page");
+    const token = await solveRecaptchaToken({
+      key: this.cfg.nopechaKey ?? "",
+      sitekey: widget.sitekey,
+      url: page.url(),
+      dataS: widget.s || undefined,
+      timeoutMs: this.cfg.solverTimeoutMs,
+    });
+    // The widget creates this textarea once it renders; make one if it hasn't.
+    await page
+      .waitForSelector('textarea[name="g-recaptcha-response"]', { state: "attached", timeout: 15000 })
+      .catch(() => undefined);
+    await page.evaluate((t) => {
+      let fields = Array.from(document.querySelectorAll<HTMLTextAreaElement>('textarea[name="g-recaptcha-response"]'));
+      if (fields.length === 0) {
+        const form = document.querySelector("form");
+        const ta = document.createElement("textarea");
+        ta.name = "g-recaptcha-response";
+        ta.style.display = "none";
+        form?.appendChild(ta);
+        fields = [ta];
+      }
+      for (const f of fields) f.value = t;
+    }, token);
+  }
+
+  /** Waits for the NopeCHA extension to finish the challenge (extension mode). */
+  private async waitForExtensionSolve(page: Page): Promise<void> {
+    const deadline = Date.now() + this.cfg.solverTimeoutMs;
+    while (Date.now() < deadline) {
+      await page.waitForTimeout(1500);
+      const solved = await page
+        .evaluate(
+          () => !!(document.querySelector('textarea[name="g-recaptcha-response"]') as HTMLTextAreaElement | null)?.value,
+        )
+        .catch(() => false);
+      if (solved) return;
+    }
+    throw new Error(
+      `the NopeCHA extension did not solve the captcha within ${Math.round(this.cfg.solverTimeoutMs / 1000)}s`,
+    );
   }
 
   /**

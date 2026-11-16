@@ -59,11 +59,11 @@ export function registerSessionTools(server: McpServer, ctx: AppContext): void {
       title: "Log in",
       description:
         "Authenticate with LinkIT360. If a valid saved session exists it is reused " +
-        "(unless force=true). Otherwise, because the login page uses reCAPTCHA, this " +
-        "opens a REAL browser window on the user's machine with credentials pre-filled " +
-        "— the user solves the captcha and clicks Login, then the session is saved and " +
-        "reused for all future calls. Tell the user to complete the login in the window " +
-        "that appears. Requires a graphical display on the server machine.",
+        "(unless force=true). Otherwise it logs in automatically: a hidden browser solves " +
+        "the reCAPTCHA with the NopeCHA solver (takes up to about a minute, nothing for the " +
+        "user to do). Only if that fails does it open a REAL browser window with credentials " +
+        "pre-filled, where the user solves the captcha; then tell the user to complete the " +
+        "login in that window. The session is saved and reused for all future calls.",
       inputSchema: {
         force: z
           .boolean()
@@ -73,8 +73,9 @@ export function registerSessionTools(server: McpServer, ctx: AppContext): void {
           .boolean()
           .optional()
           .describe(
-            "Open a visible browser for manual captcha solving (default true). " +
-              "Set false only for captcha-free sites to attempt a headless form login.",
+            "true: skip the automatic attempt and open the visible browser for manual captcha " +
+              "solving right away. Leave unset normally (automatic first, window as fallback). " +
+              "false: no window at all (automatic attempt, then a headless form login).",
           ),
         timeoutSeconds: z
           .number()
@@ -101,13 +102,36 @@ export function registerSessionTools(server: McpServer, ctx: AppContext): void {
         };
       }
 
+      // Automatic first (hidden browser + captcha solver), unless the caller
+      // explicitly asked for the manual window.
+      let automaticLoginError: string | undefined;
+      if (interactive !== true && ctx.auth.solverAvailable()) {
+        try {
+          const result = await ctx.auth.solverLogin();
+          return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+        } catch (e) {
+          automaticLoginError = e instanceof Error ? e.message : String(e);
+        }
+      }
+
+      const automaticLogin = automaticLoginError
+        ? `failed: ${automaticLoginError}`
+        : ctx.auth.solverAvailable()
+          ? undefined
+          : "off: add NOPECHA_KEY (ask your team lead, or get one at https://nopecha.com) to the MCP env config to skip the captcha";
       const useInteractive = interactive ?? true;
-      const result = useInteractive
-        ? await ctx.auth.interactiveLogin((timeoutSeconds ?? 180) * 1000)
-        : await ctx.auth.login(Boolean(force));
+      let result;
+      try {
+        result = useInteractive
+          ? await ctx.auth.interactiveLogin((timeoutSeconds ?? 180) * 1000)
+          : await ctx.auth.login(Boolean(force));
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        throw new Error(automaticLogin ? `${msg} (Automatic login ${automaticLogin})` : msg);
+      }
 
       return {
-        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        content: [{ type: "text", text: JSON.stringify({ ...result, automaticLogin }, null, 2) }],
       };
     },
   );
