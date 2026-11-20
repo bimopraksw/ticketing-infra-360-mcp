@@ -14,6 +14,7 @@ export function registerSessionTools(server: McpServer, ctx: AppContext): void {
         "session with LinkIT360, and WHICH account it is logged in as. Does not log in. " +
         "Returns authenticated, loggedInAs, configuredAccount (LINKIT_EMAIL), accountMatches, " +
         "and the name of the computer this MCP runs on (tickets are filed under that computer's account), " +
+        "automaticLogin (the captcha solving service used when the session expires, e.g. '2captcha', or 'off'), " +
         "plus this MCP's version, the latest released version, and how to update if it's behind. " +
         "Use it when the user asks which version they run or whether an update is available.",
       inputSchema: {},
@@ -41,6 +42,7 @@ export function registerSessionTools(server: McpServer, ctx: AppContext): void {
                 accountMatches,
                 computer: COMPUTER_NAME,
                 writesCheckRequester: ctx.cfg.checkRequester,
+                automaticLogin: ctx.auth.automaticLoginVia(),
                 baseUrl: ctx.cfg.baseUrl,
                 version,
               },
@@ -60,7 +62,7 @@ export function registerSessionTools(server: McpServer, ctx: AppContext): void {
       description:
         "Authenticate with LinkIT360. If a valid saved session exists it is reused " +
         "(unless force=true). Otherwise it logs in automatically: a hidden browser solves " +
-        "the reCAPTCHA with the NopeCHA solver (takes up to about a minute, nothing for the " +
+        "the reCAPTCHA with the 2Captcha solving service (takes up to about a minute, nothing for the " +
         "user to do). Only if that fails does it open a REAL browser window with credentials " +
         "pre-filled, where the user solves the captcha; then tell the user to complete the " +
         "login in that window. The session is saved and reused for all future calls.",
@@ -118,7 +120,7 @@ export function registerSessionTools(server: McpServer, ctx: AppContext): void {
         ? `failed: ${automaticLoginError}`
         : ctx.auth.solverAvailable()
           ? undefined
-          : "off: add NOPECHA_KEY (ask your team lead, or get one at https://nopecha.com) to the MCP env config to skip the captcha";
+          : "off: add TWOCAPTCHA_KEY (ask your team lead, or get one at https://2captcha.com) to the MCP env config to skip the captcha";
       const useInteractive = interactive ?? true;
       let result;
       try {

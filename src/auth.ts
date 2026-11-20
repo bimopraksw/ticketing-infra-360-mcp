@@ -7,7 +7,12 @@ import { logger } from "./logger.js";
 import { BrowserManager } from "./browser.js";
 import { withRetry } from "./utils/retry.js";
 import { requireChromium, chromiumLaunchOptions } from "./utils/browser-bootstrap.js";
-import { prepareNopechaExtension, solveRecaptchaToken, tempProfileDir } from "./utils/captcha-solver.js";
+import {
+  prepareNopechaExtension,
+  solveRecaptchaToken,
+  solveRecaptchaWith2Captcha,
+  tempProfileDir,
+} from "./utils/captcha-solver.js";
 
 /**
  * Candidate selectors tried (in order) when the login form fields are not
@@ -378,9 +383,11 @@ export class AuthManager {
   }
 
   /** Which automatic login can run here, or null when only the manual window can. */
-  private solverMode(): "token" | "extension" | null {
-    if (this.cfg.captchaSolver === "nopecha-extension") return "extension";
-    if (this.cfg.captchaSolver === "nopecha" && this.cfg.nopechaKey) return "token";
+  private solverMode(): "2captcha" | "nopecha-token" | "nopecha-extension" | null {
+    const s = this.cfg.captchaSolver;
+    if (s === "nopecha-extension") return "nopecha-extension";
+    if ((s === "auto" || s === "2captcha") && this.cfg.twocaptchaKey) return "2captcha";
+    if ((s === "auto" || s === "nopecha") && this.cfg.nopechaKey) return "nopecha-token";
     return null;
   }
 
@@ -389,8 +396,13 @@ export class AuthManager {
     return this.solverMode() !== null;
   }
 
+  /** The automatic login in use ("2captcha", "nopecha-token", ...) or "off". */
+  automaticLoginVia(): string {
+    return this.solverMode() ?? "off";
+  }
+
   /**
-   * Logs in with nobody involved. With a NopeCHA key, NopeCHA's Token API
+   * Logs in with nobody involved. With a 2Captcha (or NopeCHA) key the service
    * solves the reCAPTCHA from the sitekey and page URL and the token goes into
    * the form; the credentials never leave this machine. In extension mode the
    * NopeCHA extension clicks through the challenge in a throwaway profile that
@@ -402,8 +414,10 @@ export class AuthManager {
       throw new Error(
         this.cfg.captchaSolver === "none"
           ? "Automatic login is turned off (LINKIT_CAPTCHA_SOLVER=none)."
-          : "Automatic login needs a NopeCHA API key (ask your team lead, or get one at " +
-              "https://nopecha.com). Add it as NOPECHA_KEY to this MCP's env config.",
+          : this.cfg.captchaSolver === "nopecha"
+            ? "Automatic login needs a NopeCHA API key. Add it as NOPECHA_KEY to this MCP's env config."
+            : "Automatic login needs a 2Captcha API key (ask your team lead, or get one at " +
+              "https://2captcha.com). Add it as TWOCAPTCHA_KEY to this MCP's env config.",
       );
     }
     requireChromium();
@@ -412,7 +426,7 @@ export class AuthManager {
     const base = chromiumLaunchOptions({ headless: this.cfg.headless });
     let context: BrowserContext;
     let cleanup: () => Promise<void>;
-    if (mode === "token") {
+    if (mode !== "nopecha-extension") {
       const browser = await chromium.launch(base);
       context = await browser.newContext({ locale: this.cfg.locale, viewport: { width: 1366, height: 900 } });
       cleanup = () => browser.close().catch(() => undefined);
@@ -437,7 +451,7 @@ export class AuthManager {
     try {
       context.setDefaultTimeout(this.cfg.timeoutMs);
       context.setDefaultNavigationTimeout(this.cfg.timeoutMs);
-      if (mode === "extension") {
+      if (mode === "nopecha-extension") {
         const worker =
           context.serviceWorkers()[0] ??
           (await context.waitForEvent("serviceworker", { timeout: 15000 }).catch(() => null));
@@ -447,8 +461,8 @@ export class AuthManager {
       await page.goto(this.loginUrl(), { waitUntil: "domcontentloaded" });
 
       if (await this.hasCaptcha(page)) {
-        if (mode === "token") await this.fillCaptchaToken(page);
-        else await this.waitForExtensionSolve(page);
+        if (mode === "nopecha-extension") await this.waitForExtensionSolve(page);
+        else await this.fillCaptchaToken(page, mode);
         logger.info("Captcha solved", { via: mode, seconds: Math.round((Date.now() - started) / 1000) });
       }
 
@@ -481,23 +495,26 @@ export class AuthManager {
     this.verifiedAccount = signedInAs !== null;
     const seconds = Math.round((Date.now() - started) / 1000);
     logger.info("Automatic login complete; session saved & reloaded", { finalUrl, signedInAs, via: mode, seconds });
-    return { success: true, finalUrl, automatic: true, via: `nopecha-${mode}`, seconds };
+    return { success: true, finalUrl, automatic: true, via: mode, seconds };
   }
 
-  /** Gets a token from the NopeCHA Token API and puts it where the form expects it. */
-  private async fillCaptchaToken(page: Page): Promise<void> {
+  /** Gets a token from the solving service and puts it where the form expects it. */
+  private async fillCaptchaToken(page: Page, service: "2captcha" | "nopecha-token"): Promise<void> {
     const widget = await page.evaluate(() => {
       const el = document.querySelector("[data-sitekey]");
       return el ? { sitekey: el.getAttribute("data-sitekey") ?? "", s: el.getAttribute("data-s") ?? "" } : null;
     });
     if (!widget?.sitekey) throw new Error("could not find the reCAPTCHA sitekey on the login page");
-    const token = await solveRecaptchaToken({
-      key: this.cfg.nopechaKey ?? "",
+    const request = {
       sitekey: widget.sitekey,
       url: page.url(),
       dataS: widget.s || undefined,
       timeoutMs: this.cfg.solverTimeoutMs,
-    });
+    };
+    const token =
+      service === "2captcha"
+        ? await solveRecaptchaWith2Captcha({ ...request, key: this.cfg.twocaptchaKey ?? "" })
+        : await solveRecaptchaToken({ ...request, key: this.cfg.nopechaKey ?? "" });
     // The widget creates this textarea once it renders; make one if it hasn't.
     await page
       .waitForSelector('textarea[name="g-recaptcha-response"]', { state: "attached", timeout: 15000 })

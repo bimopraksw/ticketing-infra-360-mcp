@@ -77,13 +77,17 @@ const EnvSchema = z.object({
   // tickets under their name.
   LINKIT_CHECK_REQUESTER: boolFromEnv("true"),
 
-  // Automatic login through NopeCHA, so nobody has to tick the reCAPTCHA:
-  //  - "nopecha": Token API, active when NOPECHA_KEY is set (an API key from
-  //    nopecha.com).
-  //  - "nopecha-extension": browser extension, no key needed but unreliable.
+  // Automatic login, so nobody has to tick the reCAPTCHA:
+  //  - "auto" (default): 2Captcha when TWOCAPTCHA_KEY is set, otherwise
+  //    NopeCHA when NOPECHA_KEY is set, otherwise off.
+  //  - "2captcha": 2Captcha only (an API key from 2captcha.com). The service
+  //    that passes the LinkIT360 captcha.
+  //  - "nopecha": NopeCHA Token API only (an API key from nopecha.com).
+  //  - "nopecha-extension": NopeCHA browser extension, no key needed but unreliable.
   //  - "none": off.
   // When it can't run or fails, the manual login window opens as before.
-  LINKIT_CAPTCHA_SOLVER: z.enum(["nopecha", "nopecha-extension", "none"]).default("nopecha"),
+  LINKIT_CAPTCHA_SOLVER: z.enum(["auto", "2captcha", "nopecha", "nopecha-extension", "none"]).default("auto"),
+  TWOCAPTCHA_KEY: z.string().optional(),
   NOPECHA_KEY: z.string().optional(),
   LINKIT_SOLVER_TIMEOUT_MS: z.coerce.number().int().positive().default(120000),
 
@@ -120,7 +124,8 @@ export interface AppConfig {
   autoInstallBrowser: boolean;
   autoUpdate: boolean;
   checkRequester: boolean;
-  captchaSolver: "nopecha" | "nopecha-extension" | "none";
+  captchaSolver: "auto" | "2captcha" | "nopecha" | "nopecha-extension" | "none";
+  twocaptchaKey?: string;
   nopechaKey?: string;
   solverTimeoutMs: number;
   defaultClassification: "P0" | "P1" | "P2" | "P3" | "P4";
@@ -166,6 +171,7 @@ export function loadConfig(): AppConfig {
     autoUpdate: e.LINKIT_AUTO_UPDATE,
     checkRequester: e.LINKIT_CHECK_REQUESTER,
     captchaSolver: e.LINKIT_CAPTCHA_SOLVER,
+    twocaptchaKey: emptyToUndefined(e.TWOCAPTCHA_KEY),
     nopechaKey: emptyToUndefined(e.NOPECHA_KEY),
     solverTimeoutMs: e.LINKIT_SOLVER_TIMEOUT_MS,
     defaultClassification: e.LINKIT_DEFAULT_CLASSIFICATION,

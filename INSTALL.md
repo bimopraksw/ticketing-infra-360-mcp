@@ -14,6 +14,9 @@ Pick one, then jump to [Register it with your agent](#3-register-it-with-your-ag
 **Already use Claude Code?** Skip all of that: [paste one prompt](#fastest-paste-one-prompt-into-claude-code)
 and Claude Code installs or updates it for both Claude Code and Claude Desktop.
 
+**Already installed and upgrading to v0.9.0?** See [UPGRADE.md](UPGRADE.md) to turn on
+automatic login (no more captcha).
+
 ---
 
 ## Fastest: paste one prompt into Claude Code
@@ -27,7 +30,7 @@ computer, for both Claude Desktop and Claude Code. My details:
 
 LINKIT_EMAIL: you@linkit360.com
 LINKIT_PASSWORD: your-password
-NOPECHA_KEY: (optional, leave empty if you don't have one)
+TWOCAPTCHA_KEY: (optional, leave empty if you don't have one)
 
 Steps:
 1. Check that `node -v` is 20 or newer. If not, stop and tell me to install the LTS
@@ -38,7 +41,7 @@ Steps:
    "mcpServers" and keep every other server and setting:
    - "command": "npx", "args": ["-y", "ticketing-infra-360-mcp"]
    - "env": LINKIT_BASE_URL = https://report.linkit360.com, plus LINKIT_EMAIL,
-     LINKIT_PASSWORD and NOPECHA_KEY from above (leave NOPECHA_KEY out if empty)
+     LINKIT_PASSWORD and TWOCAPTCHA_KEY from above (leave TWOCAPTCHA_KEY out if empty)
    - macOS only: Claude Desktop doesn't see the shell PATH, so use the absolute path
      from `command -v npx` as "command", and add "PATH" to env: the folder of
      `command -v node`, then /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
@@ -60,7 +63,7 @@ Steps:
 ```
 
 Your password stays on your computer: it only goes into your local Claude config
-files. Ask your team lead for the team's NopeCHA key (see [section 4](#4-first-use--log-in-once)),
+files. Ask your team lead for the team's 2Captcha key (see [section 4](#4-first-use--log-in-once)),
 and never post it in a public channel.
 
 ---
@@ -252,16 +255,16 @@ the extension host. (Exact UI varies by extension.)
 
 ## 4. First use — log in once
 
-**Skip the captcha (optional):** with a NopeCHA API key the server logs in by
-itself in a hidden browser whenever the session expires, and the manual window
-below only opens if that fails. Get the team's key from your team lead (or create
-an account at <https://nopecha.com>), then add it to the same `env` block as your
-email and password:
+**Skip the captcha (optional):** with a 2Captcha API key the server logs in by
+itself in a hidden browser whenever the session expires (about a minute), and the
+manual window below only opens if that fails. Get the team's key from your team
+lead (or create an account at <https://2captcha.com>; a solve costs about $0.003),
+then add it to the same `env` block as your email and password:
 
-- **Claude Desktop:** add `"NOPECHA_KEY": "your-key"` inside `env`, next to `LINKIT_PASSWORD`.
+- **Claude Desktop:** add `"TWOCAPTCHA_KEY": "your-key"` inside `env`, next to `LINKIT_PASSWORD`.
 - **Claude Code:** run `claude mcp remove ticketing-infra-360`, then the
   `claude mcp add` command from [section 3](#claude-code-cli) with one more
-  `-e NOPECHA_KEY=your-key`.
+  `-e TWOCAPTCHA_KEY=your-key`.
 
 Then [restart Claude](#restart-claude-after-a-change). The
 [one-prompt setup](#fastest-paste-one-prompt-into-claude-code) does all of this for
@@ -302,7 +305,7 @@ Available tools: `login`, `check_session`, `logout`, `navigate`, `inspect_form`,
 
 Claude only reads the MCP config when it starts the server. Restart after you:
 
-- edit the `env` block (for example to add `NOPECHA_KEY` or change your password), or
+- edit the `env` block (for example to add `TWOCAPTCHA_KEY` or change your password), or
 - want a newly published version right away (npx installs load it on start).
 
 Logging in and the Chromium download don't need a restart.

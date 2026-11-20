@@ -86,7 +86,7 @@ tests/
 - **Seamless re-login** — when a session expires mid-task, the server automatically opens a real browser window so you just solve the captcha and continue. No terminal, no app restart (`LINKIT_AUTO_LOGIN`, default on).
 - **Self-installing browser** — if Chromium is missing it installs in the background; you just retry the request a minute later (`LINKIT_AUTO_INSTALL_BROWSER`, default on).
 - **Automatic updates** — on startup the server quietly pulls the latest code from GitHub and rebuilds; the update applies on the next launch, with no manual `git pull`/`build` and no restart prompt (`LINKIT_AUTO_UPDATE`, default on).
-- **Automatic login (no captcha):** with a NopeCHA API key (`NOPECHA_KEY`, from [nopecha.com](https://nopecha.com)), an expired session is renewed in a hidden browser. NopeCHA's Token API solves the reCAPTCHA from the sitekey and page URL, so the password never leaves your computer. Without a key, or if it fails, the manual login window opens as before (`LINKIT_CAPTCHA_SOLVER`, default `nopecha`; `none` turns it off).
+- **Automatic login (no captcha):** with a 2Captcha API key (`TWOCAPTCHA_KEY`, from [2captcha.com](https://2captcha.com), about $0.003 a solve), an expired session is renewed in a hidden browser in about a minute. 2Captcha solves the reCAPTCHA from the sitekey and page URL, so the password never leaves your computer. Without a key, or if it fails, the manual login window opens as before (`LINKIT_CAPTCHA_SOLVER`, default `auto`; `none` turns it off). A NopeCHA key (`NOPECHA_KEY`) is still accepted, but NopeCHA never passed the LinkIT360 captcha in tests.
 - **Requester check** — create, reply, close and `submit_form` must say who asked (`requestedBy`, an email or name). If that person isn't the owner of the account set up on this computer, the tool refuses and tells them to use Claude on their own laptop. This stops tickets landing under someone else's name when several people share one Claude account (`LINKIT_CHECK_REQUESTER`, default on).
 - **Retry with backoff** — transient navigation/network errors retried (`LINKIT_MAX_RETRIES`).
 - **Timeouts** — per-navigation timeout (`LINKIT_TIMEOUT_MS`).
@@ -148,6 +148,9 @@ tests/
 > **New user?** See **[INSTALL.md](INSTALL.md)** for a step-by-step install guide
 > (npx or from source) with per-client configuration for Claude Code, Claude
 > Desktop, Cursor, and VS Code.
+>
+> **Already installed?** See **[UPGRADE.md](UPGRADE.md)** to upgrade to v0.9.0 and
+> turn on automatic login (no more captcha).
 
 Requires Node.js ≥ 20.
 
@@ -314,7 +317,7 @@ also reports `version.current`, `version.latest` and `version.howToUpdate`.
 | `Invalid environment configuration` | Missing `.env` values. Copy `.env.example` → `.env`, fill `LINKIT_*`. |
 | Login fails, "still on login page" | Wrong credentials, or non-standard form. Set `LINKIT_LOGIN_*_SELECTOR` from `detect-login.mjs` output; check the server message in the error. |
 | Could not locate email/password field | Login markup differs. Run `node tests/detect-login.mjs`, then set the `LINKIT_LOGIN_*_SELECTOR` env vars. |
-| Login window still asks for the captcha | Automatic login needs `NOPECHA_KEY` in the MCP env config. If it is set, `login` returns `automaticLogin: "failed: …"` with the reason (wrong key, credits used up for today, NopeCHA down). |
+| Login window still asks for the captcha | Automatic login needs `TWOCAPTCHA_KEY` in the MCP env config. If it is set, `login` returns `automaticLogin: "failed: …"` with the reason (wrong key, empty 2Captcha balance, no token in time). |
 | Session keeps expiring | Normal — the server auto-opens a login window when needed; just solve the captcha in it. To force a fresh login, delete `~/.linkit360/session-<your email>.json`. Set `LINKIT_AUTO_LOGIN=false` to disable the auto-window. |
 | Tickets created under someone else's name | Fixed in 0.7.0. Each account has its own session file, and the server checks `/profile` before acting: a session that belongs to a different account than `LINKIT_EMAIL` is discarded and you are asked to log in with the right one. Run `check_session` to see `loggedInAs` vs `configuredAccount`. |
 | Tickets created under someone else's name, and you share one Claude account | Claude Desktop lets a chat on the same Claude account run tools on another person's computer, so the ticket is filed under that computer's LinkIT360 account. Since 0.7.2 write tools refuse when `requestedBy` isn't that account's owner. Best fix: give each person their own Claude account. Otherwise always chat from Claude Desktop on your own laptop. `check_session` shows which `computer` the MCP runs on. |

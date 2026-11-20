@@ -10,3 +10,6 @@ claude-desktop-config.snippet.json
 # MCPB build artifacts
 mcpb-build/
 *.mcpb
+
+# Private notes with real keys (never commit or publish)
+*.private.md

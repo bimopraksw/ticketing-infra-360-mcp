@@ -7,15 +7,21 @@ import { join } from "node:path";
 import { logger } from "../logger.js";
 
 /*
- * Two ways to get past the login reCAPTCHA with NopeCHA (https://nopecha.com):
+ * Ways to get past the login reCAPTCHA without a person ticking it:
  *
- *  - Token API (default, needs a NopeCHA API key): NopeCHA solves the captcha
- *    on its side from the sitekey and page URL and returns a token we put into
- *    the form, so the password never leaves this machine.
- *  - Browser extension (LINKIT_CAPTCHA_SOLVER=nopecha-extension, works without
- *    a key): the extension clicks through the image challenge in a hidden
- *    browser. Costs a credit per image round and Google often keeps adding
- *    rounds for automated browsers, so it is opt-in only.
+ *  - 2Captcha (https://2captcha.com, needs TWOCAPTCHA_KEY): its workers solve
+ *    the captcha in their own browsers and we get a token for the form. This
+ *    is the one that passes the LinkIT360 captcha: Google lets these workers
+ *    through on our portal's key, but not NopeCHA's robot solvers.
+ *  - NopeCHA Token API (https://nopecha.com, needs NOPECHA_KEY): same idea
+ *    with NopeCHA's own solvers. Works on lenient sites, never finished on
+ *    the LinkIT360 portal in tests (2026-11).
+ *  - NopeCHA browser extension (LINKIT_CAPTCHA_SOLVER=nopecha-extension): the
+ *    extension clicks through the image challenge in a hidden browser. Google
+ *    keeps adding rounds for automated browsers, so it is opt-in only.
+ *
+ * The token services only get the sitekey and page URL; the password never
+ * leaves this machine.
  */
 
 /**
@@ -196,6 +202,105 @@ export async function solveRecaptchaToken(opts: {
     throw new Error(nopechaError(poll.status, poll.body));
   }
   throw new Error(`NopeCHA did not return a token within ${Math.round(opts.timeoutMs / 1000)}s`);
+}
+
+const TWOCAPTCHA_API = "https://api.2captcha.com";
+
+interface TwoCaptchaReply {
+  errorId?: number;
+  errorCode?: string;
+  errorDescription?: string;
+  taskId?: number;
+  status?: string;
+  solution?: { gRecaptchaResponse?: string };
+}
+
+/** A readable reason for a 2Captcha error, with what to do about it. */
+function twoCaptchaError(reply: TwoCaptchaReply, key: string): string {
+  // Some 2Captcha messages repeat the key; never pass it on.
+  const text = (reply.errorDescription || reply.errorCode || "unknown error")
+    .split(key)
+    .join("[key]")
+    .trim()
+    .replace(/\.$/, "");
+  const base = `2Captcha: ${text}`;
+  switch (reply.errorCode) {
+    case "ERROR_KEY_DOES_NOT_EXIST":
+    case "ERROR_WRONG_USER_KEY":
+      return `${base}. Check TWOCAPTCHA_KEY in the MCP config.`;
+    case "ERROR_ZERO_BALANCE":
+      return `${base}. The 2Captcha balance is empty; top it up at https://2captcha.com.`;
+    case "ERROR_IP_NOT_ALLOWED":
+    case "IP_BANNED":
+      return `${base}. This IP address is not allowed by the 2Captcha account.`;
+    default:
+      return base;
+  }
+}
+
+async function call2Captcha(method: "createTask" | "getTaskResult", body: object): Promise<TwoCaptchaReply> {
+  const resp = await fetch(`${TWOCAPTCHA_API}/${method}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(30000),
+  });
+  return (await resp.json().catch(() => ({ errorId: 1, errorCode: `HTTP ${resp.status}` }))) as TwoCaptchaReply;
+}
+
+/**
+ * Asks 2Captcha to solve a reCAPTCHA v2 and returns the g-recaptcha-response
+ * token. A solve usually takes 20 to 60 seconds and costs about $0.003. When
+ * a worker gives up (unsolvable) we ask once more with a new task.
+ */
+export async function solveRecaptchaWith2Captcha(opts: {
+  key: string;
+  sitekey: string;
+  url: string;
+  dataS?: string;
+  timeoutMs: number;
+}): Promise<string> {
+  const deadline = Date.now() + opts.timeoutMs;
+  const task = {
+    type: "RecaptchaV2TaskProxyless",
+    websiteURL: opts.url,
+    websiteKey: opts.sitekey,
+    ...(opts.dataS ? { recaptchaDataSValue: opts.dataS } : {}),
+  };
+  let attempts = 0;
+  while (Date.now() < deadline && attempts < 2) {
+    const created = await call2Captcha("createTask", { clientKey: opts.key, task });
+    if (created.errorCode === "ERROR_NO_SLOT_AVAILABLE") {
+      await sleep(5000);
+      continue;
+    }
+    if (created.errorId || typeof created.taskId !== "number") {
+      throw new Error(twoCaptchaError(created, opts.key));
+    }
+    attempts++;
+    await sleep(10000);
+    while (Date.now() < deadline) {
+      let result: TwoCaptchaReply;
+      try {
+        result = await call2Captcha("getTaskResult", { clientKey: opts.key, taskId: created.taskId });
+      } catch (e) {
+        // A dropped poll is not a failed solve; ask again.
+        logger.debug("2Captcha poll failed; retrying", { error: e instanceof Error ? e.message : String(e) });
+        await sleep(5000);
+        continue;
+      }
+      const token = result.solution?.gRecaptchaResponse;
+      if (result.status === "ready" && token) return token;
+      if (result.errorCode === "ERROR_CAPTCHA_UNSOLVABLE") break;
+      if (result.errorId) throw new Error(twoCaptchaError(result, opts.key));
+      await sleep(5000);
+    }
+  }
+  throw new Error(
+    attempts >= 2 && Date.now() < deadline
+      ? "2Captcha could not solve the captcha (tried twice)"
+      : `2Captcha did not return a token within ${Math.round(opts.timeoutMs / 1000)}s`,
+  );
 }
 
 /** A throwaway browser profile for one solver login. */
